@@ -1,0 +1,310 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Team Workspace SaaS Design System */
+
+@layer base {
+  :root {
+    --background: 210 100% 100%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 200 54% 49%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 210 50% 84%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 210 20% 96%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 200 15% 95%;
+    --accent-foreground: 0 0% 11%;
+
+    --destructive: 351 73% 59%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 138 75% 60%;
+    --success-foreground: 0 47% 11%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 47% 11%;
+
+    --info: 199 54% 49%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 210 10% 90%;
+    --input: 210 10% 90%;
+    --ring: 210 14% 49%;
+
+    --radius: 0.5rem;
+
+    
+
+    /* Sidebar */
+    --sidebar-background: 151 10% 96%;
+    --sidebar-foreground: 222 47% 20%;
+    --sidebar-primary: 151 14% 49%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 210 20% 90%;
+    --sidebar-accent-foreground: 222 47% 20%;
+    --sidebar-border: 151 16% 85%;
+    --sidebar-ring: 151 14% 49%;
+    --sidebar-muted: 220 10% 46%;
+    --sidebar-selected: 128 65% 75%;
+
+    /* Horizontal Navbar */
+    --horizontalnavbar-background: 0 0% 100%;
+    --horizontalnavbar-foreground: 222 47% 11%;
+    --horizontalnavbar-primary: 210 14% 49%;
+    --horizontalnavbar-primary-foreground: 231 48% 60%;
+    --horizontalnavbar-accent: 30 100% 84%;
+    --horizontalnavbar-accent-foreground: 222 47% 11%;
+    --horizontalnavbar-border: 151 10% 90%;
+    --horizontalnavbar-ring: 231 48% 60%;
+    --horizontalnavbar-muted: 220 10% 46%;
+
+    /* Status colors */
+    --status-active: 128 65% 75%;
+    --status-hiring: 67 85% 77%;
+    --status-inactive: 151 10% 46%;
+
+    /* Widget gradients */
+    --gradient-primary: linear-gradient(135deg, hsla(211, 93%, 23%, 0.857) 0%, hsl(186, 100%, 38%) 100%);
+    --gradient-card: linear-gradient(135deg, hsl(0, 0%, 100%) 0%, hsl(220, 14%, 98%) 100%);
+
+    /* Shadows */
+    --shadow-sm: 0 1px 2px 0 hsl(222 47% 11% / 0.05);
+    --shadow-md: 0 4px 6px -1px hsl(222 47% 11% / 0.1), 0 2px 4px -2px hsl(222 47% 11% / 0.1);
+    --shadow-lg: 0 10px 15px -3px hsl(222 47% 11% / 0.1), 0 4px 6px -4px hsl(222 47% 11% / 0.1);
+    --shadow-card: 0 1px 3px 0 hsl(222 47% 11% / 0.08), 0 1px 2px -1px hsl(222 47% 11% / 0.08);
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 220 14% 96%;
+
+    --card: 222 47% 9%;
+    --card-foreground: 220 14% 96%;
+
+    --popover: 222 47% 9%;
+    --popover-foreground: 220 14% 96%;
+
+    --primary: 231 48% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 222 40% 15%;
+    --secondary-foreground: 220 14% 96%;
+
+    --muted: 222 40% 15%;
+    --muted-foreground: 220 9% 60%;
+
+    --accent: 231 48% 60%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 222 30% 20%;
+    --input: 222 30% 20%;
+    --ring: 231 48% 60%;
+
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 220 14% 96%;
+    --sidebar-primary: 231 48% 60%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 40% 12%;
+    --sidebar-accent-foreground: 220 14% 96%;
+    --sidebar-border: 222 30% 15%;
+    --sidebar-ring: 231 48% 60%;
+    --sidebar-muted: 220 9% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* Status badges */
+  .status-badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium;
+  }
+
+  .status-active {
+    @apply bg-success/0 text-success;
+  }
+
+  .status-hiring {
+    @apply bg-warning/0 text-warning;
+  }
+
+  .status-inactive {
+    @apply bg-muted text-muted-foreground;
+  }
+
+  /* Widget card */
+  .widget-card {
+    @apply bg-card rounded-xl border border-border p-5 shadow-card transition-shadow hover:shadow-md;
+  }
+
+  .widget-header {
+    @apply flex items-center justify-between mb-4;
+  }
+
+  .widget-title {
+    @apply text-sm font-semibold text-foreground flex items-center gap-2;
+  }
+
+  .widget-action {
+    @apply text-xs text-muted-foreground hover:text-primary cursor-pointer transition-colors;
+  }
+
+  /* Team card */
+  .team-card {
+    @apply bg-card rounded-xl border border-border p-5 shadow-card transition-all hover:shadow-lg hover:border-primary/20 cursor-pointer;
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    @apply animate-pulse bg-muted rounded;
+  }
+
+  /* Filter chip */
+  .filter-chip {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80 cursor-pointer transition-colors;
+  }
+
+  .filter-chip-active {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90;
+  }
+
+  /* Sidebar navigation */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors;
+  }
+
+  .nav-item-active {
+    @apply bg-sidebar-accent text-sidebar-primary;
+  }
+  
+  /* Horizontal Navbar Items */
+  .hnav-item {
+      @apply relative
+            flex items-center gap-2
+            px-4 py-2.5
+            text-sm font-medium
+            text-sidebar-foreground/70
+            transition-colors duration-200 ease-in-out
+            hover:bg-sidebar-accent
+            hover:text-sidebar-foreground;
+          }
+
+    .hnav-item-active {
+      @apply text-sidebar-foreground;
+    }
+
+    .hnav-item-active::after {
+      content: "";
+      @apply absolute left-0 right-0 bottom-0
+      h-0.5 bg-sidebar-primary;
+    }
+
+    .hnav-item:focus-visible {
+      @apply outline-none ring-2 ring-sidebar-ring ring-offset-2;
+    }
+
+    /* Mail list item */
+    .mail-item {
+    @apply flex items-start gap-3 p-4 border-b border-border hover:bg-muted/50 cursor-pointer transition-colors;
+  }
+  
+  .mail-item-unread {
+    @apply bg-primary/5 font-medium;
+  }
+  
+  /* Chat message */
+  .chat-message {
+    @apply flex gap-3 p-3 hover:bg-muted/30 rounded-lg transition-colors;
+  }
+
+  /* Project accordion */
+  .project-accordion {
+    @apply border border-border rounded-xl overflow-hidden mb-3;
+  }
+
+  /* Task row */
+  .task-row {
+    @apply flex items-center gap-3 px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors cursor-pointer;
+  }
+  
+  /* Calendar event */
+  .calendar-event {
+    @apply px-2 py-1 rounded text-xs font-medium truncate;
+  }
+
+  /* Drive file */
+  .drive-item {
+    @apply flex items-center gap-3 p-3 rounded-lg hover:bg-muted/50 cursor-pointer transition-colors;
+  }
+
+  .drive-item-selected {
+    @apply bg-primary/10 border border-primary/30;
+  }
+}
+
+@layer utilities {
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.5);
+  }
+}
