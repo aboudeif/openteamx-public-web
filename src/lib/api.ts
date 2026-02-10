@@ -17,6 +17,9 @@ export const api = {
   delete: async <T>(url: string, options?: RequestOptions): Promise<T> => {
     return request<T>(url, { ...options, method: 'DELETE' });
   },
+  patch: async <T>(url: string, data?: unknown, options?: RequestOptions): Promise<T> => {
+    return request<T>(url, { ...options, method: 'PATCH', data });
+  },
 };
 
 async function request<T>(url: string, options: RequestOptions = {}): Promise<T> {

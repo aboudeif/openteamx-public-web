@@ -1,14 +1,14 @@
 import { ITeamService } from "@/services/interfaces/ITeamService";
-import { Team } from "@/shared/types";
+import { CreateTeamDto, Team, TeamDetail, TeamMember, TeamMembersResponse, TeamsResponse } from "@/shared/types";
 import { api } from "@/lib/api";
 
 export class ApiTeamService implements ITeamService {
-  async getTeams(offset: number, limit: number): Promise<Team[]> {
-    return api.get<Team[]>(`/teams?offset=${offset}&limit=${limit}`);
+  async getTeams(offset: number, limit: number): Promise<TeamsResponse> {
+    return api.get<TeamsResponse>(`/teams?offset=${offset}&limit=${limit}`);
   }
 
-  async getTeamById(id: string): Promise<Team | null> {
-    return api.get<Team>(`/teams/${id}`);
+  async getTeamById(id: string): Promise<TeamDetail | null> {
+    return api.get<TeamDetail>(`/teams/${id}`);
   }
 
   async searchTeams(query: string): Promise<Team[]> {
@@ -31,8 +31,12 @@ export class ApiTeamService implements ITeamService {
     return api.get<Team[]>(`/teams/ex-teams`);
   }
 
-  async createTeam(team: any): Promise<Team> {
+  async createTeam(team: CreateTeamDto): Promise<Team> {
     return api.post<Team>(`/teams`, team);
+  }
+
+  async getTeamMembers(teamId: string): Promise<TeamMembersResponse> {
+    return api.get<TeamMembersResponse>(`/teams/${teamId}/members`);
   }
 
   async leaveTeam(teamId: string): Promise<void> {

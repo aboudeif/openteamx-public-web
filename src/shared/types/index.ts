@@ -26,6 +26,15 @@ export interface TeamDetail extends Team {
   currentUserRole?: MemberRole;
 }
 
+export interface CreateTeamDto {
+  name: string;
+  description?: string;
+  type: TeamType;
+  subjects: string[];
+  isPublic: boolean;
+  isDiscoverable: boolean;
+}
+
 export interface TeamMember {
   id: string;
   userId: string;
