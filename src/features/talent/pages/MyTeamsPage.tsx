@@ -120,8 +120,7 @@ export default function MyTeams() {
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Users className="w-5 h-5 text-primary" />
-                <h2 className="text-lg font-semibold">My Teams</h2>
-                <span className="text-sm text-muted-foreground">({myTeams.length})</span>
+                <h2 className="text-lg font-semibold text-primary">My Teams</h2>
               </div>
               <Button onClick={() => setShowCreateModal(true)} size="sm">
                 <Plus className="w-4 h-4 mr-1" />

@@ -113,7 +113,9 @@ export default function DiscoverTeams() {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
         <PageHeader
           title="Discover Teams"
-          description="Find teams that match your skills and interests"
+          titleClassName="text-xl font-semibold text-primary/50"
+          description="Find team/s that match your skills and interests"
+          descriptionClassName="text-xxl text-gray-400 status-badge mx-0 px-0 my-1"
         >
           <Button>
             <Users className="w-4 h-4 mr-2" />
