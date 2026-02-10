@@ -1,5 +1,5 @@
 import { ITeamService } from "@/services/interfaces/ITeamService";
-import { CreateTeamDto, Team, TeamDetail, TeamMember, TeamMembersResponse, TeamsResponse } from "@/shared/types";
+import { CreateTeamDto, Team, TeamDetail, TeamMember, TeamMembersResponse, TeamsResponse } from "@/shared/types/index";
 import { api } from "@/lib/api";
 
 export class ApiTeamService implements ITeamService {

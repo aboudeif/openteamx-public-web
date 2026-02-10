@@ -43,7 +43,7 @@ export const useCreateTeam = () => {
   const queryClient = useQueryClient();
 
   return useMutation<Team, Error, CreateTeamDto>({
-    mutationFn: (team) => teamService.createTeam(team),
+    mutationFn: (newTeam) => teamService.createTeam(newTeam),
     onSuccess: (newTeam: Team) => {
       queryClient.setQueryData<Team[]>([TEAMS_QUERY_KEY], (oldTeams) =>
         Array.isArray(oldTeams) ? [...oldTeams, newTeam] : [newTeam]
