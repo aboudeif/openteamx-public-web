@@ -1,12 +1,5 @@
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { User } from "lucide-react";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -16,23 +9,29 @@ import {
   DropdownMenuGroup,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
+import { authService } from "@/services";
 
+const PUBLIC_WEB_HOME = import.meta.env.VITE_PUBLIC_WEB_URL || "http://localhost:3001";
 
 export function TalentProfile() {
   const navigate = useNavigate();
   const IS_USER_LOGGED_IN = true;
   const { toast } = useToast();
 
-  function signout(): void {
+  async function signout(): Promise<void> {
+    try {
+      await authService.logout();
+    } catch {
+      // Continue with local cleanup and redirect even if API logout fails.
+    }
+
     localStorage.clear();
     sessionStorage.clear();
-
     toast({
       title: "Signed out",
       description: "You have been successfully signed out.",
     });
-
-    navigate("/");
+    window.location.replace(new URL("/", PUBLIC_WEB_HOME).toString());
   }
 
   return (
@@ -66,7 +65,7 @@ export function TalentProfile() {
         <DropdownMenuSeparator />
         <DropdownMenuItem className="cursor-pointer" onClick={() => navigate('/help')}>Help Center</DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="text-destructive cursor-pointer" onClick={() => signout()}>Sign Out</DropdownMenuItem>
+        <DropdownMenuItem className="text-destructive cursor-pointer" onClick={() => void signout()}>Sign Out</DropdownMenuItem>
       </DropdownMenuContent>
 
     </DropdownMenu>

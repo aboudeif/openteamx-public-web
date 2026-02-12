@@ -1,7 +1,48 @@
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+function normalizeApiBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_URL?.trim();
+
+  // Default backend API for local development.
+  if (!raw) {
+    return "http://localhost:5001/api/v1";
+  }
+
+  const base = raw.replace(/\/+$/, "");
+
+  if (base.endsWith("/api/v1")) {
+    return base;
+  }
+
+  if (base.endsWith("/api")) {
+    return `${base}/v1`;
+  }
+
+  // Support host-only URL like http://localhost:5001
+  if (base.startsWith("http://") || base.startsWith("https://")) {
+    return `${base}/api/v1`;
+  }
+
+  // Support Vite proxy style relative path.
+  if (base === "/api") {
+    return "/api/v1";
+  }
+
+  return base;
+}
+
+const BASE_URL = normalizeApiBaseUrl();
 
 interface RequestOptions extends RequestInit {
   data?: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, statusText: string) {
+    super(`API Error: ${status} ${statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+  }
 }
 
 export const api = {
@@ -27,6 +68,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
   
   const config: RequestInit = {
     ...rest,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...headers,
@@ -40,8 +82,7 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
   const response = await fetch(`${BASE_URL}${url}`, config);
 
   if (!response.ok) {
-    // Handle specific error status codes here (401, 403, etc.)
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw new ApiError(response.status, response.statusText);
   }
 
   // Handle empty responses

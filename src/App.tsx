@@ -29,6 +29,7 @@ import TeamMeetingNotes from "./features/meetings/pages/MeetingNotesPage";
 import TeamMeetingNoteDetails from "./features/meetings/pages/MeetingNoteDetailsPage";
 import TeamMeetings from "./features/meetings/pages/MeetingsPage";
 import TeamActivities from "./features/team-workspace/pages/ActivitiesPage";
+import { AuthGate } from "@/components/auth/AuthGate";
 
 const queryClient = new QueryClient();
 
@@ -39,41 +40,43 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <ScrollToTop />
-        <Routes>
-          {/* Talent Workspace Routes */}
-          <Route path="/overview" element={<TalentDashboard />} />
-          <Route path="/myteams" element={<MyTeams />} />
-          <Route path="/integrations" element={<TalentIntegrations />} />
-          <Route path="/help" element={<TalentHelpCenter />} />
-          <Route path="/wallet" element={<Wallet />} />
-          <Route path="/rewards" element={<Rewards />} />
-          <Route path="/notifications" element={<Notifications />} />
-          
-          {/* Team Discovery */}
-          <Route path="/" element={<DiscoverTeams />} />
-          
-          {/* Team Workspace Routes - Dynamic team ID */}
-          <Route path="/:teamId/team" element={<TeamHome />} />
-          <Route path="/:teamId/mail" element={<TeamMail />} />
-          <Route path="/:teamId/chat" element={<TeamChat />} />
-          <Route path="/:teamId/projects" element={<TeamProjects />} />
-          <Route path="/:teamId/calendar" element={<TeamCalendar />} />
-          <Route path="/:teamId/drive" element={<TeamDrive />} />
-          <Route path="/:teamId/drive/editor" element={<TextEditor />} />
-          <Route path="/:teamId/drive/editor/:fileId" element={<TextEditor />} />
-          <Route path="/:teamId/drive/spreadsheet" element={<SpreadsheetEditor />} />
-          <Route path="/:teamId/drive/spreadsheet/:fileId" element={<SpreadsheetEditor />} />
-          <Route path="/:teamId/tasks/:taskId" element={<TaskDetail />} />
-          <Route path="/:teamId/requests" element={<TeamJoinRequests />} />
-          <Route path="/:teamId/repositories" element={<TeamRepositories />} />
-          <Route path="/:teamId/repository/:repositoryId" element={<TeamRepository />} />
-          <Route path="/:teamId/notes" element={<TeamMeetingNotes />} />
-          <Route path="/:teamId/notes/:noteId" element={<TeamMeetingNoteDetails />} />
-          <Route path="/:teamId/meetings" element={<TeamMeetings />} />
-          <Route path="/:teamId/activities" element={<TeamActivities />} />
+        <AuthGate>
+          <Routes>
+            {/* Talent Workspace Routes */}
+            <Route path="/overview" element={<TalentDashboard />} />
+            <Route path="/myteams" element={<MyTeams />} />
+            <Route path="/integrations" element={<TalentIntegrations />} />
+            <Route path="/help" element={<TalentHelpCenter />} />
+            <Route path="/wallet" element={<Wallet />} />
+            <Route path="/rewards" element={<Rewards />} />
+            <Route path="/notifications" element={<Notifications />} />
+            
+            {/* Team Discovery */}
+            <Route path="/" element={<DiscoverTeams />} />
+            
+            {/* Team Workspace Routes - Dynamic team ID */}
+            <Route path="/:teamId/team" element={<TeamHome />} />
+            <Route path="/:teamId/mail" element={<TeamMail />} />
+            <Route path="/:teamId/chat" element={<TeamChat />} />
+            <Route path="/:teamId/projects" element={<TeamProjects />} />
+            <Route path="/:teamId/calendar" element={<TeamCalendar />} />
+            <Route path="/:teamId/drive" element={<TeamDrive />} />
+            <Route path="/:teamId/drive/editor" element={<TextEditor />} />
+            <Route path="/:teamId/drive/editor/:fileId" element={<TextEditor />} />
+            <Route path="/:teamId/drive/spreadsheet" element={<SpreadsheetEditor />} />
+            <Route path="/:teamId/drive/spreadsheet/:fileId" element={<SpreadsheetEditor />} />
+            <Route path="/:teamId/tasks/:taskId" element={<TaskDetail />} />
+            <Route path="/:teamId/requests" element={<TeamJoinRequests />} />
+            <Route path="/:teamId/repositories" element={<TeamRepositories />} />
+            <Route path="/:teamId/repository/:repositoryId" element={<TeamRepository />} />
+            <Route path="/:teamId/notes" element={<TeamMeetingNotes />} />
+            <Route path="/:teamId/notes/:noteId" element={<TeamMeetingNoteDetails />} />
+            <Route path="/:teamId/meetings" element={<TeamMeetings />} />
+            <Route path="/:teamId/activities" element={<TeamActivities />} />
 
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthGate>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
