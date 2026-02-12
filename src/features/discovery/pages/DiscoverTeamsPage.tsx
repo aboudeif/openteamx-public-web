@@ -13,6 +13,26 @@ import { teamService } from "@/services";
 import { filterGroups } from "@/data/teams";
 import { Team } from "@/shared/types";
 
+function extractTeams(payload: unknown): Team[] {
+  if (Array.isArray(payload)) {
+    return payload as Team[];
+  }
+
+  if (payload && typeof payload === "object") {
+    const candidate = payload as { data?: unknown; items?: unknown };
+
+    if (Array.isArray(candidate.data)) {
+      return candidate.data as Team[];
+    }
+
+    if (Array.isArray(candidate.items)) {
+      return candidate.items as Team[];
+    }
+  }
+
+  return [];
+}
+
 export default function DiscoverTeams() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -29,8 +49,12 @@ export default function DiscoverTeams() {
     const fetchInitialTeams = async () => {
       try {
         // Initial load simulated delay: 1000ms
-        const initialTeams = await teamService.getTeams(0, 6, 1000);
+        const initialTeamsResponse = await teamService.getTeams(0, 6);
+        const initialTeams = extractTeams(initialTeamsResponse);
         setTeams(initialTeams);
+        if (initialTeams.length < 6) {
+          setHasMore(false);
+        }
       } catch (error) {
         console.error("Failed to load teams", error);
       } finally {
@@ -47,11 +71,15 @@ export default function DiscoverTeams() {
 
     setIsLoading(true);
     try {
-      const nextTeams = await teamService.getTeams(teams.length, 4);
+      const nextTeamsResponse = await teamService.getTeams(teams.length, 4);
+      const nextTeams = extractTeams(nextTeamsResponse);
       if (nextTeams.length === 0) {
         setHasMore(false);
       } else {
         setTeams((prev) => [...prev, ...nextTeams]);
+        if (nextTeams.length < 4) {
+          setHasMore(false);
+        }
       }
     } catch (error) {
       console.error("Failed to load more teams", error);
@@ -97,10 +125,16 @@ export default function DiscoverTeams() {
   const filteredTeams = teams.filter((team) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
+      const description = typeof team.description === "string" ? team.description : "";
+      const tags = Array.isArray((team as any).tags)
+        ? (team as any).tags
+        : Array.isArray((team as any).subjects)
+          ? (team as any).subjects
+          : [];
       const matchesSearch =
         team.name.toLowerCase().includes(query) ||
-        team.description.toLowerCase().includes(query) ||
-        team.tags.some((tag) => tag.toLowerCase().includes(query));
+        description.toLowerCase().includes(query) ||
+        tags.some((tag: string) => tag.toLowerCase().includes(query));
       if (!matchesSearch) return false;
     }
     return true;

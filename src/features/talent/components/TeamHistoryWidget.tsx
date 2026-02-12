@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WidgetCard } from "@/components/shared/WidgetCard";
 import { History, UserPlus, UserMinus } from "lucide-react";
 import { ViewHistoryModal } from "./ViewHistoryModal";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IS_DEMO_MODE, talentService } from "@/services";
 
 const historyEvents = [
   { id: 1, type: "joined", team: "TechVentures Studio", date: "Jan 15, 2026", role: "Team Lead" },
@@ -14,6 +15,34 @@ const historyEvents = [
 
 export function TeamHistoryWidget() {
   const [showViewModal, setShowViewModal] = useState(false);
+  const [events, setEvents] = useState(historyEvents);
+
+  useEffect(() => {
+    if (IS_DEMO_MODE) {
+      setEvents(historyEvents);
+      return;
+    }
+
+    const loadHistory = async () => {
+      try {
+        const response = await talentService.getTeamHistory();
+        const data = Array.isArray(response?.data) ? response.data : Array.isArray(response) ? response : [];
+        setEvents(
+          data.map((event: any, idx: number) => ({
+            id: event.id ?? idx,
+            type: event.type || event.action || "joined",
+            team: event.teamName || event.team?.name || "Team",
+            date: event.date || event.createdAt || "Recent",
+            role: event.role || event.memberRole || "Member",
+          }))
+        );
+      } catch {
+        setEvents([]);
+      }
+    };
+
+    void loadHistory();
+  }, []);
 
   return (
     <>
@@ -29,7 +58,7 @@ export function TeamHistoryWidget() {
             <div className="absolute left-4 top-2 bottom-2 w-px bg-border" />
 
             <div className="space-y-4">
-              {historyEvents.map((event, idx) => (
+              {events.length > 0 ? events.map((event, idx) => (
                 <div key={event.id} className="flex items-start gap-3 relative animate-fade-in" style={{ animationDelay: `${idx * 50}ms` }}>
                   {/* Timeline dot */}
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${
@@ -63,7 +92,9 @@ export function TeamHistoryWidget() {
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <p className="text-sm text-muted-foreground">No team history yet</p>
+              )}
             </div>
           </div>
         </ScrollArea>

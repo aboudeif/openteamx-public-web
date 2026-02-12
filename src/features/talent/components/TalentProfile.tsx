@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { User } from "lucide-react";
 import {
@@ -15,8 +16,32 @@ const PUBLIC_WEB_HOME = import.meta.env.VITE_PUBLIC_WEB_URL || "http://localhost
 
 export function TalentProfile() {
   const navigate = useNavigate();
-  const IS_USER_LOGGED_IN = true;
+  const [displayName, setDisplayName] = useState("User");
+  const [isUserLoggedIn, setIsUserLoggedIn] = useState(true);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const loadCurrentUser = async () => {
+      try {
+        const response = await authService.getCurrentUser();
+        const data = response?.data || response;
+        setDisplayName(data?.user?.name || "User");
+        setIsUserLoggedIn(Boolean(data?.authenticated ?? true));
+      } catch {
+        setDisplayName("User");
+        setIsUserLoggedIn(true);
+      }
+    };
+
+    void loadCurrentUser();
+  }, []);
+
+  const initials = useMemo(() => {
+    const parts = displayName.trim().split(" ").filter(Boolean);
+    if (parts.length === 0) return "U";
+    if (parts.length === 1) return parts[0][0]?.toUpperCase() || "U";
+    return `${parts[0][0] || ""}${parts[parts.length - 1][0] || ""}`.toUpperCase();
+  }, [displayName]);
 
   async function signout(): Promise<void> {
     try {
@@ -38,10 +63,10 @@ export function TalentProfile() {
     <DropdownMenu>
 
       <DropdownMenuTrigger asChild>
-        {IS_USER_LOGGED_IN ? (
+        {isUserLoggedIn ? (
           <button>
             <div className="w-7 h-7 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-medium text-sm">
-              JD
+              {initials}
             </div>
           </button>
         ) : (
@@ -54,7 +79,7 @@ export function TalentProfile() {
         <DropdownMenuGroup>
           <div className="p-3 border-b border-border flex items-center justify-between">
             <div className="hidden md:flex flex-col items-start">
-              <span className="text-sm font-medium">John Doe</span>
+              <span className="text-sm font-medium">{displayName}</span>
               <span className="text-xs text-muted-foreground bg-blue-600/50 rounded-[4px] text-white px-1 py-0.5">Talent</span>
             </div>
 

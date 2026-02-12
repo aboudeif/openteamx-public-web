@@ -24,8 +24,27 @@ import { IDriveService } from "./interfaces/IDriveService";
 import { IProjectService } from "./interfaces/IProjectService";
 import { ITeamService } from "./interfaces/ITeamService";
 
-// Default to true to maintain current behavior until backend is ready
-const useMock = import.meta.env.VITE_USE_MOCK !== 'false';
+type AppEnv = "demo" | "dev" | "production";
+
+function resolveAppEnv(): AppEnv {
+  const rawEnv = (import.meta.env.VITE_ENV || import.meta.env.MODE || "dev").toLowerCase();
+
+  if (rawEnv === "demo") {
+    return "demo";
+  }
+
+  if (rawEnv === "production") {
+    return "production";
+  }
+
+  // Treat Vite's default "development" as "dev".
+  return "dev";
+}
+
+const appEnv = resolveAppEnv();
+const useMock = appEnv === "demo";
+export const APP_ENV = appEnv;
+export const IS_DEMO_MODE = useMock;
 
 export const chatService: IChatService = useMock ? new MockChatService() : new ApiChatService();
 export const driveService: IDriveService = useMock ? new MockDriveService() : new ApiDriveService();

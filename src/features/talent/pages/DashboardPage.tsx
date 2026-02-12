@@ -11,7 +11,7 @@ export default function TalentDashboard() {
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-xl font-semibold text-foreground text-primary/50">Welcome back, John</h1>
+          <h1 className="text-xl font-semibold text-foreground text-primary/50">Welcome back</h1>
           <p className="text-xxl text-gray-400 status-badge mx-1 px-0 my-1">Here's your workspace overview</p>
         </div>
 

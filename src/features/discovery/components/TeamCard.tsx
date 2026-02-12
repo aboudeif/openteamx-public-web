@@ -5,13 +5,15 @@ import { Users, Calendar, Tag, MapPin } from "lucide-react";
 export interface Team {
   id: string;
   name: string;
-  description: string;
-  status: "active" | "hiring" | "inactive";
-  tags: string[];
-  size: number;
-  createdAt: string;
-  type: string;
-  location: string;
+  description?: string;
+  status?: string;
+  tags?: string[];
+  subjects?: string[];
+  size?: number;
+  memberCount?: number;
+  createdAt?: string | Date;
+  type?: string;
+  location?: string;
 }
 
 interface TeamCardProps {
@@ -20,10 +22,33 @@ interface TeamCardProps {
 }
 
 export function TeamCard({ team, onViewTeam }: TeamCardProps) {
+  const normalizedTags = Array.isArray(team.tags)
+    ? team.tags
+    : Array.isArray(team.subjects)
+      ? team.subjects
+      : [];
+
+  const normalizedStatus =
+    typeof team.status === "string" && team.status.toLowerCase() === "active"
+      ? "active"
+      : typeof team.status === "string" && team.status.toLowerCase() === "hiring"
+        ? "hiring"
+        : "inactive";
+
+  const normalizedDescription = typeof team.description === "string" ? team.description : "No description available.";
+  const normalizedMemberCount = typeof team.size === "number" ? team.size : (team.memberCount ?? 0);
+  const normalizedCreatedAt =
+    typeof team.createdAt === "string"
+      ? team.createdAt
+      : team.createdAt instanceof Date
+        ? team.createdAt.toLocaleDateString()
+        : "Recently";
+  const normalizedLocation = team.location || "N/A";
+
   return (
     <div className="team-card animate-fade-in">
       <div className="flex items-start justify-between mb-3">
-        <StatusBadge status={team.status} />
+        <StatusBadge status={normalizedStatus} />
         <div className="bg-orange-400/95 rounded-[4px] text-white text-xs px-1.5 py-0.5">Open Team</div>
       </div>
 
@@ -31,12 +56,12 @@ export function TeamCard({ team, onViewTeam }: TeamCardProps) {
         {team.name}
       </h3>
       <p className="text-sm text-muted-foreground mb-4 line-clamp-2">
-        {team.description}
+        {normalizedDescription}
       </p>
 
       {/* Tags */}
       <div className="flex flex-wrap gap-1.5 mb-4">
-        {team.tags.slice(0, 3).map((tag) => (
+        {normalizedTags.slice(0, 3).map((tag) => (
           <span
             key={tag}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-secondary text-xs font-medium text-secondary-foreground"
@@ -45,9 +70,9 @@ export function TeamCard({ team, onViewTeam }: TeamCardProps) {
             {tag}
           </span>
         ))}
-        {team.tags.length > 3 && (
+        {normalizedTags.length > 3 && (
           <span className="text-xs text-muted-foreground">
-            +{team.tags.length - 3} more
+            +{normalizedTags.length - 3} more
           </span>
         )}
       </div>
@@ -56,25 +81,25 @@ export function TeamCard({ team, onViewTeam }: TeamCardProps) {
       <div className="flex items-center gap-4 text-xs text-muted-foreground mb-4">
         <span className="inline-flex items-center gap-1">
           <Users className="w-3.5 h-3.5" />
-          {team.size} members
+          {normalizedMemberCount} members
         </span>
         <span className="inline-flex items-center gap-1">
           <MapPin className="w-3.5 h-3.5" />
-          {team.location}
+          {normalizedLocation}
         </span>
       </div>
 
       <div className="flex items-center justify-between pt-3 border-t border-border">
         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
           <Calendar className="w-3.5 h-3.5" />
-          {team.createdAt}
+          {normalizedCreatedAt}
         </span>
         <Button 
           size="sm" 
           onClick={() => onViewTeam(team.id)}
           className="h-8"
         >
-          {team.status === "hiring" ? "Request to Join" : "View Team"}
+          {normalizedStatus === "hiring" ? "Request to Join" : "View Team"}
         </Button>
       </div>
     </div>

@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { WidgetCard } from "@/components/shared/WidgetCard";
 import { FileText, Briefcase, GraduationCap, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EditCVModal } from "./EditCVModal";
 import { ViewCVModal } from "./ViewCVModal";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IS_DEMO_MODE, talentService } from "@/services";
 
 const cvSections = [
   {
@@ -39,6 +40,62 @@ const cvSections = [
 export function CVWidget() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [sections, setSections] = useState(cvSections);
+
+  useEffect(() => {
+    if (IS_DEMO_MODE) {
+      setSections(cvSections);
+      return;
+    }
+
+    const loadCv = async () => {
+      try {
+        const response = await talentService.getCv();
+        const data = response?.data || response;
+
+        const experience = Array.isArray(data?.experience) ? data.experience : [];
+        const education = Array.isArray(data?.education) ? data.education : [];
+        const skills = Array.isArray(data?.skills) ? data.skills : [];
+
+        setSections([
+          {
+            id: "experience",
+            icon: Briefcase,
+            title: "Experience",
+            items: experience.map((item: any) => ({
+              title: item.title || item.position || "Role",
+              subtitle: item.company || item.organization || "N/A",
+              period: item.period || `${item.startDate || ""} ${item.endDate ? `- ${item.endDate}` : ""}`.trim(),
+            })),
+          },
+          {
+            id: "education",
+            icon: GraduationCap,
+            title: "Education",
+            items: education.map((item: any) => ({
+              title: item.degree || item.title || "Education",
+              subtitle: item.school || item.institution || "N/A",
+              period: item.period || `${item.startDate || ""} ${item.endDate ? `- ${item.endDate}` : ""}`.trim(),
+            })),
+          },
+          {
+            id: "skills",
+            icon: Wrench,
+            title: "Skills",
+            items: skills.map((item: any) => ({
+              title: typeof item === "string" ? item : item.title || item.name || "Skill",
+              subtitle: typeof item === "string" ? "Skill" : item.category || "Skill",
+              period: "",
+            })),
+          },
+        ]);
+      } catch {
+        setSections([]);
+      }
+    };
+
+    void loadCv();
+  }, []);
 
   return (
     <>
@@ -50,7 +107,7 @@ export function CVWidget() {
       >
         <ScrollArea className="h-[280px]">
           <div className="space-y-4 pr-2">
-            {cvSections.map((section) => (
+            {sections.length > 0 ? sections.map((section) => (
               <div key={section.id}>
                 <div className="flex items-center gap-2 mb-2">
                   <section.icon className="w-4 h-4 text-primary" />
@@ -72,7 +129,9 @@ export function CVWidget() {
                   ))}
                 </div>
               </div>
-            ))}
+            )) : (
+              <p className="text-sm text-muted-foreground">No CV data available</p>
+            )}
 
             <Button 
               variant="outline" 
