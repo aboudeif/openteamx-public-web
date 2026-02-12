@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { WorkspaceLayout } from "@/components/layout/WorkspaceLayout";
 import { Gift, Star, Trophy, Target, Zap, Award, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { IS_DEMO_MODE, walletService } from "@/services";
 
 interface Reward {
   id: string;
@@ -78,13 +79,16 @@ const generateMoreRewards = (startId: number, count: number): Reward[] => {
 };
 
 export default function Rewards() {
-  const [rewards, setRewards] = useState<Reward[]>(initialRewards);
+  const [rewards, setRewards] = useState<Reward[]>(IS_DEMO_MODE ? initialRewards : []);
   const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
+  const [hasMore, setHasMore] = useState(IS_DEMO_MODE);
+  const [avgRewardsPerYear, setAvgRewardsPerYear] = useState<number>(0);
+  const [thisMonthRewardsCount, setThisMonthRewardsCount] = useState<number>(0);
+  const [thisMonthRewardsAmount, setThisMonthRewardsAmount] = useState<number>(0);
   const loaderRef = useRef<HTMLDivElement>(null);
 
   const loadMore = useCallback(() => {
-    if (loading || !hasMore) return;
+    if (!IS_DEMO_MODE || loading || !hasMore) return;
     
     setLoading(true);
     setTimeout(() => {
@@ -94,6 +98,76 @@ export default function Rewards() {
       if (rewards.length >= 25) setHasMore(false);
     }, 1000);
   }, [loading, hasMore, rewards.length]);
+
+  useEffect(() => {
+    if (IS_DEMO_MODE) return;
+
+    const mapReward = (reward: any, idx: number): Reward => {
+      const amountValue = reward?.amount ?? reward?.value ?? 0;
+      const normalizedAmount =
+        typeof amountValue === "number"
+          ? `$${amountValue.toFixed(2)}`
+          : typeof amountValue === "string" && amountValue.startsWith("$")
+            ? amountValue
+            : typeof amountValue === "string"
+              ? `$${Number(amountValue || 0).toFixed(2)}`
+              : "$0.00";
+
+      const normalizedDateRaw = reward?.date ?? reward?.createdAt;
+      const normalizedDate =
+        typeof normalizedDateRaw === "string"
+          ? normalizedDateRaw
+          : normalizedDateRaw instanceof Date
+            ? normalizedDateRaw.toLocaleDateString()
+            : "Recent";
+
+      return {
+        id: String(reward?.id ?? idx),
+        title: reward?.title ?? reward?.name ?? "Reward",
+        company: reward?.company ?? reward?.teamName ?? reward?.source ?? "OpenTeamX",
+        recruiterName: reward?.recruiterName ?? reward?.awardedBy ?? undefined,
+        date: normalizedDate,
+        amount: normalizedAmount,
+        rating: typeof reward?.rating === "number" ? reward.rating : undefined,
+        comment: typeof reward?.comment === "string" ? reward.comment : undefined,
+      };
+    };
+
+    const fetchRewards = async () => {
+      setLoading(true);
+      try {
+        const [rewardsResponse, statsResponse] = await Promise.all([
+          walletService.getRewards(),
+          walletService.getRewardsStats(),
+        ]);
+
+        const data = Array.isArray((rewardsResponse as any)?.items)
+          ? (rewardsResponse as any).items
+          : Array.isArray((rewardsResponse as any)?.data)
+            ? (rewardsResponse as any).data
+            : Array.isArray(rewardsResponse)
+              ? rewardsResponse
+              : [];
+        setRewards(data.map(mapReward));
+
+        const stats = (statsResponse as any)?.data || statsResponse || {};
+        setAvgRewardsPerYear(Number(stats.avgRewardsPerYear || 0));
+        setThisMonthRewardsCount(Number(stats.thisMonthRewardsCount || 0));
+        setThisMonthRewardsAmount(Number(stats.thisMonthRewardsAmount || 0));
+      } catch (error) {
+        console.error("Failed to load rewards", error);
+        setRewards([]);
+        setAvgRewardsPerYear(0);
+        setThisMonthRewardsCount(0);
+        setThisMonthRewardsAmount(0);
+      } finally {
+        setHasMore(false);
+        setLoading(false);
+      }
+    };
+
+    void fetchRewards();
+  }, []);
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -116,6 +190,18 @@ export default function Rewards() {
     const amount = parseFloat(r.amount.replace("$", ""));
     return sum + amount;
   }, 0);
+
+  const derivedAvgRewardsPerYear = IS_DEMO_MODE
+    ? Number((rewards.length / 2).toFixed(2))
+    : avgRewardsPerYear;
+  const derivedThisMonthRewardsCount = IS_DEMO_MODE
+    ? rewards.filter((r) => r.date.includes("Jan")).length
+    : thisMonthRewardsCount;
+  const derivedThisMonthRewardsAmount = IS_DEMO_MODE
+    ? rewards
+        .filter((r) => r.date.includes("Jan"))
+        .reduce((sum, r) => sum + parseFloat(r.amount.replace("$", "")), 0)
+    : thisMonthRewardsAmount;
 
   return (
     <WorkspaceLayout>
@@ -180,15 +266,15 @@ export default function Rewards() {
             <p className="text-sm text-muted-foreground">Total Earned</p>
           </div>
           <div className="widget-card text-center">
-            <p className="text-3xl font-bold text-warning">4.8</p>
-            <p className="text-sm text-muted-foreground">Avg. Rating</p>
+            <p className="text-3xl font-bold text-warning">{derivedAvgRewardsPerYear}</p>
+            <p className="text-sm text-muted-foreground">Avg. Rewards/Year</p>
           </div>
           <div className="widget-card text-center">
             <div className="flex items-center justify-center gap-1 text-success">
               <TrendingUp className="w-5 h-5" />
-              <span className="text-xl font-bold">+15%</span>
+              <span className="text-xl font-bold">{derivedThisMonthRewardsCount}</span>
             </div>
-            <p className="text-sm text-muted-foreground">This Month</p>
+            <p className="text-sm text-muted-foreground">This Month (${derivedThisMonthRewardsAmount.toFixed(0)})</p>
           </div>
         </div>
 
@@ -263,7 +349,7 @@ export default function Rewards() {
                 {loading && (
                   <div className="flex items-center justify-center gap-2 text-muted-foreground">
                     <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm">Loading more rewards...</span>
+                    <span className="text-sm">{IS_DEMO_MODE ? "Loading more rewards..." : "Loading rewards..."}</span>
                   </div>
                 )}
                 {!hasMore && (
