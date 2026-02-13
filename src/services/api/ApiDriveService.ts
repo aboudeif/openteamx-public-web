@@ -1,6 +1,7 @@
 import { IDriveService } from "@/services/interfaces/IDriveService";
 import { DriveItem } from "@/shared/types";
 import { api } from "@/lib/api";
+import { TextDocumentPayload } from "@/services/interfaces/IDriveService";
 
 export class ApiDriveService implements IDriveService {
   async getFiles(teamId: string, folderId?: string): Promise<DriveItem[]> {
@@ -58,8 +59,8 @@ export class ApiDriveService implements IDriveService {
     return api.put(`/teams/${teamId}/drive/files/${fileId}/access`, { access, members, permissions });
   }
 
-  async getDocumentContent(teamId: string, fileId: string): Promise<any> {
-    return api.get<any>(`/teams/${teamId}/drive/documents/${fileId}`);
+  async getDocumentContent(teamId: string, fileId: string): Promise<TextDocumentPayload> {
+    return api.get<TextDocumentPayload>(`/teams/${teamId}/drive/documents/${fileId}`);
   }
 
   async saveDocumentContent(teamId: string, fileId: string, title: string, content: string): Promise<void> {

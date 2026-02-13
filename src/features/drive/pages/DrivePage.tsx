@@ -153,6 +153,27 @@ export default function TeamDrive() {
     setCurrentPath([...currentPath, folderName]);
   };
 
+  const handleOpenItem = (item: DriveItem) => {
+    if (item.type === DriveItemType.Folder) {
+      handleOpenFolder(item.name);
+      return;
+    }
+
+    if (item.type === DriveItemType.Document) {
+      navigate(`/${teamId}/drive/editor/${item.id}`);
+      return;
+    }
+
+    if (item.type === DriveItemType.Spreadsheet) {
+      navigate(`/${teamId}/drive/spreadsheet/${item.id}`);
+      return;
+    }
+
+    if (item.type === DriveItemType.Link && item.url) {
+      window.open(item.url, "_blank");
+    }
+  };
+
   const handleBack = () => {
     setCurrentPath(currentPath.slice(0, -1));
   };
@@ -297,11 +318,7 @@ export default function TeamDrive() {
                       "drive-item px-4",
                       isSelected && "drive-item-selected bg-primary/5"
                     )}
-                    onClick={() => {
-                      if (item.type === DriveItemType.Folder) {
-                        handleOpenFolder(item.name);
-                      }
-                    }}
+                    onClick={() => handleOpenItem(item)}
                   >
                     <div className="w-6 flex items-center">
                       {item.pinned && <Pin className="w-3 h-3 text-warning" />}
@@ -384,11 +401,7 @@ export default function TeamDrive() {
                   <div
                     key={item.id}
                     className="group p-4 rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-md transition-all cursor-pointer"
-                    onClick={() => {
-                      if (item.type === DriveItemType.Folder) {
-                        handleOpenFolder(item.name);
-                      }
-                    }}
+                    onClick={() => handleOpenItem(item)}
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div className={cn("w-14 h-14 rounded-xl bg-muted flex items-center justify-center", colorClass)}>

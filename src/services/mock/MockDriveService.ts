@@ -1,6 +1,7 @@
 import { IDriveService } from "@/services/interfaces/IDriveService";
 import { DriveItem } from "@/shared/types";
 import { DriveItemType } from "@/shared/enums";
+import { TextDocumentPayload } from "@/services/interfaces/IDriveService";
 
 const folders: DriveItem[] = [
   { id: "f1", name: "Project Alpha", type: DriveItemType.Folder, modifiedAt: "Jan 28, 2026", modifiedBy: "John Doe", pinned: true },
@@ -19,6 +20,8 @@ const files: DriveItem[] = [
   { id: "d7", name: "Team Photo.png", type: DriveItemType.Image, modifiedAt: "Jan 25, 2026", modifiedBy: "Sarah Chen", size: "2.1 MB" },
   { id: "d8", name: "Budget 2026.xlsx", type: DriveItemType.Spreadsheet, modifiedAt: "Jan 22, 2026", modifiedBy: "John Doe", size: "189 KB" },
 ];
+
+const documentStore: Record<string, Record<string, TextDocumentPayload>> = {};
 
 const sharedWithMe: DriveItem[] = [
   { id: "s1", name: "Client Feedback.pdf", type: DriveItemType.Document, modifiedAt: "Jan 27, 2026", modifiedBy: "External - John Smith", size: "1.2 MB", shared: true },
@@ -51,8 +54,16 @@ export class MockDriveService implements IDriveService {
         if (folderId && folderContents[folderId]) {
           resolve(folderContents[folderId]);
         } else {
+          const teamDocuments = Object.entries(documentStore[teamId] || {}).map(([id, doc]) => ({
+            id,
+            name: `${doc.title}.doc`,
+            type: DriveItemType.Document,
+            modifiedAt: "Just now",
+            modifiedBy: "You",
+            size: `${Math.max(1, Math.round(doc.content.length / 1024))} KB`,
+          }));
           // Return root files and folders + shared for the main view simulation
-          resolve([...folders, ...files, ...sharedWithMe]);
+          resolve([...folders, ...files, ...teamDocuments, ...sharedWithMe]);
         }
       }, 100);
     });
@@ -82,6 +93,48 @@ export class MockDriveService implements IDriveService {
   }
 
   async deleteItem(itemId: string): Promise<void> {
+    return Promise.resolve();
+  }
+
+  async createTextDocument(teamId: string, title: string, content: string, folderId?: string): Promise<DriveItem> {
+    const fileId = `doc-${Date.now()}`;
+
+    if (!documentStore[teamId]) {
+      documentStore[teamId] = {};
+    }
+
+    documentStore[teamId][fileId] = { title, content };
+
+    return Promise.resolve({
+      id: fileId,
+      name: `${title}.doc`,
+      type: DriveItemType.Document,
+      modifiedAt: "Just now",
+      modifiedBy: "You",
+      size: `${Math.max(1, Math.round(content.length / 1024))} KB`,
+    });
+  }
+
+  async getDocumentContent(teamId: string, fileId: string): Promise<TextDocumentPayload> {
+    const teamDocuments = documentStore[teamId];
+    const existing = teamDocuments?.[fileId];
+
+    if (existing) {
+      return Promise.resolve(existing);
+    }
+
+    return Promise.resolve({
+      title: "Untitled Document",
+      content: "<p></p>",
+    });
+  }
+
+  async saveDocumentContent(teamId: string, fileId: string, title: string, content: string): Promise<void> {
+    if (!documentStore[teamId]) {
+      documentStore[teamId] = {};
+    }
+
+    documentStore[teamId][fileId] = { title, content };
     return Promise.resolve();
   }
 }

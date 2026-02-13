@@ -13,6 +13,11 @@ type TaskItem = {
   priority?: string;
   status?: string;
   projectId?: string;
+  project?: {
+    id?: string;
+    title?: string;
+    name?: string;
+  };
   assignments?: Array<{
     user?: {
       name?: string;
@@ -26,9 +31,21 @@ function extractTasks(payload: unknown): TaskItem[] {
   }
 
   if (payload && typeof payload === "object") {
-    const candidate = payload as { items?: unknown; data?: unknown };
+    const candidate = payload as {
+      items?: unknown;
+      data?: unknown;
+      total?: unknown;
+      page?: unknown;
+      limit?: unknown;
+    };
     if (Array.isArray(candidate.items)) {
       return candidate.items as TaskItem[];
+    }
+    if (candidate.data && typeof candidate.data === "object") {
+      const nested = candidate.data as { items?: unknown };
+      if (Array.isArray(nested.items)) {
+        return nested.items as TaskItem[];
+      }
     }
     if (Array.isArray(candidate.data)) {
       return candidate.data as TaskItem[];
@@ -47,13 +64,17 @@ const priorityColors = {
 export function TasksWidget() {
   const navigate = useNavigate();
   const { teamId = "" } = useParams();
-  const { data: rawTasks = [], isLoading } = useQuery<TaskItem[]>({
-    queryKey: ["team-tasks-widget", teamId],
+  const nowIso = useMemo(() => new Date().toISOString(), []);
+  const { data: rawTasks = [], isLoading, isError } = useQuery<TaskItem[]>({
+    queryKey: ["team-tasks-widget", teamId, nowIso],
     queryFn: async () => {
-      const response = await api.get<unknown>(`/teams/${teamId}/tasks?limit=20&page=1`);
+      const response = await api.get<unknown>(
+        `/teams/${teamId}/tasks?limit=20&page=1&dueAfter=${encodeURIComponent(nowIso)}`
+      );
       return extractTasks(response);
     },
     enabled: Boolean(teamId),
+    retry: false,
   });
 
   const tasks = useMemo(
@@ -61,7 +82,7 @@ export function TasksWidget() {
       rawTasks
         .filter((task) => {
           const status = (task.status || "").toUpperCase();
-          return status !== "DONE" && status !== "CANCELLED";
+          return Boolean(task.dueDate) && status !== "DONE" && status !== "CANCELLED";
         })
         .sort((a, b) => {
           const aDue = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
@@ -81,6 +102,8 @@ export function TasksWidget() {
     >
       {isLoading ? (
         <p className="text-sm text-muted-foreground">Loading tasks...</p>
+      ) : isError ? (
+        <p className="text-sm text-muted-foreground">Failed to load due tasks.</p>
       ) : tasks.length === 0 ? (
         <p className="text-sm text-muted-foreground">No due tasks.</p>
       ) : (
@@ -99,6 +122,7 @@ export function TasksWidget() {
             return (
               <div
                 key={task.id}
+                onClick={() => navigate(`/${teamId}/tasks/${task.id}`)}
                 className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
               >
                 <div className={cn("w-1 h-8 rounded-full", 
@@ -107,7 +131,9 @@ export function TasksWidget() {
                 )} />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground line-clamp-1">{task.title}</p>
-                  <p className="text-xs text-muted-foreground">{task.projectId || "General"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {task.project?.title || task.project?.name || task.projectId || "Project"}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className={cn("text-xs flex items-center gap-1", priorityColors[priority as keyof typeof priorityColors])}>

@@ -36,8 +36,10 @@ export function AppHorizontalnavbar() {
   const currentTeamId = pathSegments.length >= 2 ? pathSegments[0] : null;
 
   const isActive = (path: string) => {
-    if (path === "/") return location.pathname === "/";
-    return location.pathname.endsWith(path);
+    if (!currentTeamId) return false;
+
+    const fullPath = `/${currentTeamId}${path}`;
+    return location.pathname === fullPath || location.pathname.startsWith(`${fullPath}/`);
   };
 
   const checkOptionalItem = (item: { path: string }) =>
