@@ -302,7 +302,7 @@ export default function TeamRepository() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-[calc(100vh-120px)]">
+      <div className="flex flex-col h-[calc(100vh-120px)] min-h-0">
         {/* Header - Fixed */}
         <header className="sticky top-0 z-10 bg-background border-b border-border px-6 py-4">
           <div className="flex items-center gap-3 mb-4">
@@ -340,7 +340,7 @@ export default function TeamRepository() {
         </header>
 
         {/* Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
           <div className="border-b border-border px-6">
             <TabsList className="h-12 bg-transparent border-0 p-0">
               <TabsTrigger 
@@ -367,9 +367,9 @@ export default function TeamRepository() {
             </TabsList>
           </div>
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="flex-1 min-h-0">
             {/* Code Tab */}
-            <TabsContent value="code" className="m-0 p-6">
+            <TabsContent value="code" className="m-0 p-6 pb-10">
               {/* Branch Selector */}
               <div className="flex items-center gap-3 mb-4">
                 <Select value={selectedBranch} onValueChange={setSelectedBranch}>
@@ -499,7 +499,7 @@ export default function TeamRepository() {
             </TabsContent>
 
             {/* Commits Tab */}
-            <TabsContent value="commits" className="m-0 p-6">
+            <TabsContent value="commits" className="m-0 p-6 pb-10">
               <div className="relative max-w-md mb-4">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <Input
@@ -541,7 +541,7 @@ export default function TeamRepository() {
             </TabsContent>
 
             {/* Contributors Tab */}
-            <TabsContent value="contributors" className="m-0 p-6">
+            <TabsContent value="contributors" className="m-0 p-6 pb-10">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {contributors.map((contributor) => (
                   <div
