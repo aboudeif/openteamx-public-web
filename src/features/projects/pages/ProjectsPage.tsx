@@ -18,6 +18,10 @@ import {
   AlertCircle,
   Timer,
   Filter,
+  Pencil,
+  ArrowLeftRight,
+  UserPlus,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -30,9 +34,20 @@ import { AddProjectModal } from "@/features/projects/components/AddProjectModal"
 import { AddTaskModal } from "@/features/projects/components/AddTaskModal";
 import { FilterModal } from "@/features/projects/components/FilterModal";
 import { projectService } from "@/services";
+import { api } from "@/lib/api";
 import { Project, Task } from "@/shared/types";
 import { TaskStatus, TaskPriority, ProjectStatus } from "@/shared/enums";
 import { toast } from "sonner";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const statusConfig = {
   [TaskStatus.ToDo]: { label: "To Do", icon: Circle, color: "text-muted-foreground" },
@@ -47,7 +62,42 @@ const priorityColors: Record<string, string> = {
   [TaskPriority.High]: "bg-destructive/20 text-destructive",
 };
 
-function TaskRow({ task, level = 0, teamId, onClickDetail }: { task: Task; level?: number; teamId: string; onClickDetail: (taskId: string, tab?: string) => void }) {
+type TeamMemberOption = {
+  userId: string;
+  userName: string;
+};
+
+type EditTaskPayload = {
+  id: string;
+  title?: string;
+  description?: string | null;
+  priority?: string;
+  dueDate?: string | null;
+  estimatedHours?: number | null;
+  currentAssigneeId?: string;
+};
+
+function TaskRow({
+  task,
+  level = 0,
+  teamId,
+  onClickDetail,
+  onEditTask,
+  onChangeTaskStatus,
+  onReassignTask,
+  onDeleteTask,
+  teamMembers,
+}: {
+  task: Task;
+  level?: number;
+  teamId: string;
+  onClickDetail: (taskId: string, tab?: string) => void;
+  onEditTask: (taskId: string) => void;
+  onChangeTaskStatus: (taskId: string, status: string) => void;
+  onReassignTask: (taskId: string, userId: string) => void;
+  onDeleteTask: (taskId: string) => void;
+  teamMembers: TeamMemberOption[];
+}) {
   const [expanded, setExpanded] = useState(false);
   const StatusIcon = statusConfig[task.status].icon;
   const hasChildren = task.childTasks && task.childTasks.length > 0;
@@ -55,13 +105,16 @@ function TaskRow({ task, level = 0, teamId, onClickDetail }: { task: Task; level
   return (
     <>
       <div
-        className="task-row group"
+        className="task-row group rounded-lg border border-transparent bg-background/70 hover:bg-accent/30 hover:border-border/70 transition-colors"
         style={{ paddingLeft: `${16 + level * 24}px` }}
         onClick={() => onClickDetail(task.id)}
       >
         {hasChildren && (
           <button
-            onClick={() => setExpanded(!expanded)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setExpanded(!expanded);
+            }}
             className="p-0.5 rounded hover:bg-muted"
           >
             {expanded ? (
@@ -124,15 +177,82 @@ function TaskRow({ task, level = 0, teamId, onClickDetail }: { task: Task; level
           {task.assignee}
         </div>
 
-        <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
-          <MoreHorizontal className="w-4 h-4" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+            <DropdownMenuItem onSelect={() => onEditTask(task.id)}>
+              <Pencil className="w-4 h-4 mr-2" />
+              Edit Task
+            </DropdownMenuItem>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <ArrowLeftRight className="w-4 h-4 mr-2" />
+                Change Status
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {["TODO", "IN_PROGRESS", "REVIEW", "DONE", "CANCELLED"].map((status) => (
+                  <DropdownMenuItem key={status} onSelect={() => onChangeTaskStatus(task.id, status)}>
+                    {status.replace("_", " ")}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <UserPlus className="w-4 h-4 mr-2" />
+                Re-assign
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {teamMembers.length === 0 ? (
+                  <DropdownMenuItem disabled>No team members</DropdownMenuItem>
+                ) : (
+                  teamMembers.map((member) => (
+                    <DropdownMenuItem key={member.userId} onSelect={() => onReassignTask(task.id, member.userId)}>
+                      {member.userName}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuItem className="text-destructive" onSelect={() => onDeleteTask(task.id)}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Task
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onClickDetail(task.id)}>
+              <ArrowLeftRight className="w-4 h-4 mr-2" />
+              Open Task
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {expanded && hasChildren && (
         <div>
           {task.childTasks!.map((child) => (
-            <TaskRow key={child.id} task={child} level={level + 1} teamId={teamId} onClickDetail={onClickDetail} />
+            <TaskRow
+              key={child.id}
+              task={child}
+              level={level + 1}
+              teamId={teamId}
+              onClickDetail={onClickDetail}
+              onEditTask={onEditTask}
+              onChangeTaskStatus={onChangeTaskStatus}
+              onReassignTask={onReassignTask}
+              onDeleteTask={onDeleteTask}
+              teamMembers={teamMembers}
+            />
           ))}
         </div>
       )}
@@ -146,10 +266,15 @@ export default function TeamProjects() {
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<string[]>(["1"]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [showAddProject, setShowAddProject] = useState(false);
+  const [showProjectModal, setShowProjectModal] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [showEditTask, setShowEditTask] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
+  const [taskToEdit, setTaskToEdit] = useState<EditTaskPayload | undefined>(undefined);
+  const [projectToEdit, setProjectToEdit] = useState<{ id: string; title?: string; description?: string; dueDate?: string } | undefined>(undefined);
+  const [isTeamLeader, setIsTeamLeader] = useState(false);
 
   const fetchProjects = useCallback(async () => {
     if (!teamId) {
@@ -169,6 +294,40 @@ export default function TeamProjects() {
     fetchProjects();
   }, [fetchProjects]);
 
+  useEffect(() => {
+    if (!teamId) return;
+    const loadTeamMembers = async () => {
+      try {
+        const response = await api.get<Array<{ userId?: string; userName?: string }>>(`/teams/${teamId}/members`);
+        const members = Array.isArray(response)
+          ? response
+              .map((member) => ({
+                userId: member.userId || "",
+                userName: member.userName || "Unknown",
+              }))
+              .filter((member) => Boolean(member.userId))
+          : [];
+        setTeamMembers(members);
+      } catch {
+        setTeamMembers([]);
+      }
+    };
+    void loadTeamMembers();
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!teamId) return;
+    const loadTeamRole = async () => {
+      try {
+        const team = await api.get<{ currentUserRole?: string }>(`/teams/${teamId}`);
+        setIsTeamLeader(team?.currentUserRole === "LEADER");
+      } catch {
+        setIsTeamLeader(false);
+      }
+    };
+    void loadTeamRole();
+  }, [teamId]);
+
   const toggleProject = (id: string) => {
     setExpandedProjects((prev) =>
       prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
@@ -184,9 +343,108 @@ export default function TeamProjects() {
     setShowAddTask(true);
   };
 
+  const handleOpenCreateProject = () => {
+    setProjectToEdit(undefined);
+    setShowProjectModal(true);
+  };
+
+  const handleOpenEditProject = (project: Project) => {
+    if (!isTeamLeader) return;
+    setProjectToEdit({
+      id: project.id,
+      title: project.title,
+      description: project.description,
+      dueDate: project.dueDate,
+    });
+    setShowProjectModal(true);
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    if (!teamId || !isTeamLeader) return;
+    try {
+      await api.delete(`/projects/${projectId}`);
+      toast.success("Project deleted");
+      await fetchProjects();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete project";
+      toast.error(message);
+    }
+  };
+
+  const handleEditTask = async (taskId: string) => {
+    if (!teamId) return;
+    try {
+      const response = await api.get<{
+        id: string;
+        title?: string;
+        description?: string | null;
+        priority?: string;
+        dueDate?: string | null;
+        estimatedHours?: number | null;
+        projectId?: string | null;
+        assignments?: Array<{ userId?: string }>;
+      }>(`/teams/${teamId}/tasks/${taskId}`);
+      setTaskToEdit({
+        id: response.id,
+        title: response.title,
+        description: response.description,
+        priority: response.priority,
+        dueDate: response.dueDate,
+        estimatedHours: response.estimatedHours,
+        currentAssigneeId: response.assignments?.[0]?.userId,
+      });
+      setSelectedProjectId(response.projectId || null);
+      setShowEditTask(true);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to load task";
+      toast.error(message);
+    }
+  };
+
+  const handleChangeTaskStatus = async (taskId: string, status: string) => {
+    if (!teamId) return;
+    try {
+      await api.patch(`/teams/${teamId}/tasks/${taskId}`, { status });
+      toast.success("Task status updated");
+      await fetchProjects();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update task status";
+      toast.error(message);
+    }
+  };
+
+  const handleReassignTask = async (taskId: string, userId: string) => {
+    if (!teamId) return;
+    try {
+      const taskDetails = await api.get<{ assignments?: Array<{ userId?: string }> }>(`/teams/${teamId}/tasks/${taskId}`);
+      const currentAssigneeId = taskDetails?.assignments?.[0]?.userId;
+      if (currentAssigneeId && currentAssigneeId !== userId) {
+        await api.delete(`/teams/${teamId}/tasks/${taskId}/assign/${currentAssigneeId}`).catch(() => undefined);
+      }
+      await api.post(`/teams/${teamId}/tasks/${taskId}/assign`, { userId });
+      toast.success("Task reassigned");
+      await fetchProjects();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to reassign task";
+      toast.error(message);
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!teamId) return;
+    try {
+      await api.delete(`/teams/${teamId}/tasks/${taskId}`);
+      toast.success("Task archived");
+      await fetchProjects();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to archive task";
+      toast.error(message);
+    }
+  };
+
   return (
     <MainLayout>
-      <div className="h-[calc(100vh-120px)] overflow-auto p-6 lg:p-8 max-w-7xl mx-auto">
+      <div className="h-[calc(100vh-120px)] overflow-auto p-6 lg:p-8 max-w-7xl mx-auto bg-gradient-to-b from-background via-background to-muted/20">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -195,7 +453,7 @@ export default function TeamProjects() {
               Manage tasks and track progress across all team projects
             </p>
           </div>
-          <Button onClick={() => setShowAddProject(true)}>
+          <Button onClick={handleOpenCreateProject}>
             <Plus className="w-4 h-4 mr-2" />
             New Project
           </Button>
@@ -209,7 +467,7 @@ export default function TeamProjects() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tasks..."
-              className="pl-9 bg-card"
+              className="pl-9 bg-background/80 border-border/70"
             />
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowFilter(true)}>
@@ -231,10 +489,10 @@ export default function TeamProjects() {
                 key={project.id}
                 open={isExpanded}
                 onOpenChange={() => toggleProject(project.id)}
-                className="project-accordion bg-card"
+                className="project-accordion overflow-hidden rounded-xl border border-border/70 bg-card/90 shadow-sm"
               >
                 <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-3 p-4 hover:bg-muted/30 transition-colors">
+                  <div className="flex items-center gap-3 p-4 hover:bg-accent/30 transition-colors">
                     {isExpanded ? (
                       <ChevronDown className="w-5 h-5 text-muted-foreground" />
                     ) : (
@@ -244,14 +502,14 @@ export default function TeamProjects() {
                     <div className="flex-1 text-left">
                       <div className="flex items-center gap-3 mb-1">
                         <h3 className="font-semibold text-foreground">{project.title || "Untitled project"}</h3>
-                        <span className={cn(
-                          "px-2 py-0.5 rounded-full text-[10px] font-medium uppercase",
-                          project.status === ProjectStatus.Active ? "bg-success/10 text-success" :
-                          project.status === ProjectStatus.Completed ? "bg-muted text-muted-foreground" :
-                          "bg-warning/10 text-warning"
-                        )}>
-                          {project.status.replace("_", " ")}
-                        </span>
+                        {project.status !== ProjectStatus.Active && (
+                          <span className={cn(
+                            "px-2 py-0.5 rounded-full text-[10px] font-medium uppercase",
+                            project.status === ProjectStatus.Completed ? "bg-muted text-muted-foreground" : "bg-warning/10 text-warning",
+                          )}>
+                            {project.status.replace("_", " ")}
+                          </span>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground line-clamp-1">{project.description || "No description"}</p>
                     </div>
@@ -275,14 +533,37 @@ export default function TeamProjects() {
                           </div>
                         ))}
                       </div>
+                      {isTeamLeader && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem onSelect={() => handleOpenEditProject(project)}>
+                              <Pencil className="w-4 h-4 mr-2" />
+                              Edit Project
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem className="text-destructive" onSelect={() => handleDeleteProject(project.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" />
+                              Delete Project
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      )}
                     </div>
                   </div>
                 </CollapsibleTrigger>
 
                 <CollapsibleContent>
-                  <div className="border-t border-border">
+                  <div className="border-t border-border/70 bg-background/40">
                     {/* Task Header */}
-                    <div className="flex items-center gap-3 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-muted/40 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       <div className="w-5" />
                       <div className="w-4" />
                       <span className="flex-1">Task</span>
@@ -294,15 +575,25 @@ export default function TeamProjects() {
                     </div>
 
                     {/* Tasks */}
-                    <div className="divide-y divide-border">
+                    <div className="divide-y divide-border/60">
                       {(project.tasks || []).map((task) => (
-                        <TaskRow key={task.id} task={task} teamId={teamId} onClickDetail={handleClickDetail} />
+                        <TaskRow
+                          key={task.id}
+                          task={task}
+                          teamId={teamId}
+                          onClickDetail={handleClickDetail}
+                          onEditTask={handleEditTask}
+                          onChangeTaskStatus={handleChangeTaskStatus}
+                          onReassignTask={handleReassignTask}
+                          onDeleteTask={handleDeleteTask}
+                          teamMembers={teamMembers}
+                        />
                       ))}
                     </div>
 
                     {/* Add Task */}
                     <button 
-                      className="flex items-center gap-2 w-full px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors"
+                      className="flex items-center gap-2 w-full px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
                       onClick={() => handleAddTask(project.id)}
                     >
                       <Plus className="w-4 h-4" />
@@ -316,10 +607,15 @@ export default function TeamProjects() {
         </div>
 
         <AddProjectModal
-          open={showAddProject}
-          onOpenChange={setShowAddProject}
+          open={showProjectModal}
+          onOpenChange={(open) => {
+            setShowProjectModal(open);
+            if (!open) setProjectToEdit(undefined);
+          }}
           teamId={teamId}
           onCreated={fetchProjects}
+          onUpdated={fetchProjects}
+          projectToEdit={projectToEdit}
         />
         <AddTaskModal
           open={showAddTask}
@@ -327,6 +623,17 @@ export default function TeamProjects() {
           teamId={teamId}
           projectId={selectedProjectId || undefined}
           onCreated={fetchProjects}
+        />
+        <AddTaskModal
+          open={showEditTask}
+          onOpenChange={(open) => {
+            setShowEditTask(open);
+            if (!open) setTaskToEdit(undefined);
+          }}
+          teamId={teamId}
+          projectId={selectedProjectId || undefined}
+          taskToEdit={taskToEdit}
+          onUpdated={fetchProjects}
         />
         <FilterModal open={showFilter} onOpenChange={setShowFilter} />
       </div>

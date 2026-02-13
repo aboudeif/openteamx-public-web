@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { formatDistanceToNow } from "date-fns";
 import { MainLayout } from "@/components/layout/MainLayout";
@@ -98,6 +98,7 @@ type ApiTaskDetail = {
   priority?: string;
   dueDate?: string | null;
   createdAt?: string;
+  updatedAt?: string;
   createdById?: string;
   createdBy?: {
     id?: string;
@@ -119,6 +120,16 @@ type ApiWorkLog = {
   id: string;
   hours?: number;
   loggedAt?: string;
+};
+
+type ApiActivityEvent = {
+  id: string;
+  type?: string;
+  message?: string;
+  occurredAt?: string;
+  actor?: {
+    name?: string;
+  };
 };
 
 type ApiTaskAttachment = {
@@ -150,9 +161,32 @@ type ChildTask = {
   description?: string | null;
 };
 
+type ApiProjectTaskRecord = {
+  id?: string;
+  taskId?: string;
+  title?: string;
+  status?: string;
+  description?: string | null;
+  task?: {
+    id?: string;
+    title?: string;
+    status?: string;
+    description?: string | null;
+  };
+};
+
 type TeamMemberOption = {
   userId: string;
   userName: string;
+};
+
+type HistoryEntry = {
+  id: string;
+  at: string;
+  action: string;
+  details: string;
+  actor?: string;
+  source: "activity" | "comment" | "worklog" | "attachment" | "resource" | "task";
 };
 
 type TabId = "story" | "resources" | "estimate" | "children" | "comments" | "history";
@@ -189,6 +223,32 @@ function buildDescriptionWithParent(parentTaskId: string, content?: string): str
   return clean ? `${TASK_CHILD_MARKER_PREFIX}${parentTaskId}\n${clean}` : `${TASK_CHILD_MARKER_PREFIX}${parentTaskId}`;
 }
 
+function normalizeProjectTaskRecord(record: ApiProjectTaskRecord): ChildTask | null {
+  const source = record.task || record;
+  const id = source.id || record.taskId || record.id;
+  if (!id) return null;
+  return {
+    id,
+    title: source.title || "Untitled task",
+    status: source.status,
+    description: source.description,
+  };
+}
+
+function is404Error(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeError = error as {
+    status?: number;
+    message?: string;
+    response?: { status?: number };
+  };
+  return (
+    maybeError.status === 404 ||
+    maybeError.response?.status === 404 ||
+    (typeof maybeError.message === "string" && maybeError.message.includes("404"))
+  );
+}
+
 export default function TaskDetail() {
   const { teamId, taskId } = useParams();
   const [searchParams] = useSearchParams();
@@ -221,6 +281,8 @@ export default function TaskDetail() {
   const [newChildTaskTitle, setNewChildTaskTitle] = useState("");
   const [editingChildTaskId, setEditingChildTaskId] = useState<string | null>(null);
   const [editingChildTaskTitle, setEditingChildTaskTitle] = useState("");
+  const [activityEvents, setActivityEvents] = useState<ApiActivityEvent[]>([]);
+  const [workLogs, setWorkLogs] = useState<ApiWorkLog[]>([]);
 
   // Estimation state
   const [estimations, setEstimations] = useState<EstimationPeriod[]>([]);
@@ -232,10 +294,13 @@ export default function TaskDetail() {
     if (!teamId || !taskId) return;
     setIsLoading(true);
     try {
-      const [taskResponse, commentResponse, workLogResponse] = await Promise.all([
+      const [taskResponse, commentResponse, workLogResponse, activityResponse] = await Promise.all([
         api.get<ApiTaskDetail>(`/teams/${teamId}/tasks/${taskId}`),
         api.get<ApiTaskComment[]>(`/teams/${teamId}/tasks/${taskId}/comments`).catch(() => []),
         api.get<{ items?: ApiWorkLog[] }>(`/teams/${teamId}/tasks/${taskId}/work-logs`).catch(() => ({ items: [] })),
+        api
+          .get<{ items?: ApiActivityEvent[] } | ApiActivityEvent[]>(`/teams/${teamId}/activity/entity/TASK/${taskId}?limit=100`)
+          .catch(() => ({ items: [] })),
       ]);
 
       setTask(taskResponse);
@@ -264,6 +329,13 @@ export default function TaskDetail() {
       });
       setComments(plainComments);
       setResourceLinks(parsedLinks);
+      setActivityEvents(
+        Array.isArray(activityResponse)
+          ? activityResponse
+          : Array.isArray(activityResponse?.items)
+            ? activityResponse.items
+            : [],
+      );
 
       const estimated = Number(taskResponse?.estimatedHours || 0);
       setEstimations(
@@ -273,6 +345,7 @@ export default function TaskDetail() {
       );
 
       const logs = Array.isArray(workLogResponse?.items) ? workLogResponse.items : [];
+      setWorkLogs(logs);
       setProgressLogs(
         logs.map((log) => {
           const hours = Number(log.hours || 0);
@@ -295,9 +368,11 @@ export default function TaskDetail() {
 
       if (taskResponse?.projectId) {
         const projectTasksResponse = await api
-          .get<ChildTask[]>(`/projects/${taskResponse.projectId}/tasks`)
+          .get<ApiProjectTaskRecord[]>(`/projects/${taskResponse.projectId}/tasks`)
           .catch(() => []);
-        const projectTasks = Array.isArray(projectTasksResponse) ? projectTasksResponse : [];
+        const projectTasks = (Array.isArray(projectTasksResponse) ? projectTasksResponse : [])
+          .map((record) => normalizeProjectTaskRecord(record))
+          .filter((record): record is ChildTask => Boolean(record));
         const children = projectTasks.filter(
           (projectTask) =>
             projectTask.id !== taskResponse.id &&
@@ -538,9 +613,18 @@ export default function TaskDetail() {
     if (!teamId || !taskId || !editingChildTaskId || !editingChildTaskTitle.trim()) return;
     try {
       setIsActionLoading(true);
-      await api.patch(`/teams/${teamId}/tasks/${editingChildTaskId}`, {
-        title: editingChildTaskTitle.trim(),
-      });
+      try {
+        await api.patch(`/teams/${teamId}/tasks/${editingChildTaskId}`, {
+          title: editingChildTaskTitle.trim(),
+        });
+      } catch (patchError) {
+        if (!is404Error(patchError)) {
+          throw patchError;
+        }
+        await api.put(`/teams/${teamId}/tasks/${editingChildTaskId}`, {
+          title: editingChildTaskTitle.trim(),
+        });
+      }
       setEditingChildTaskId(null);
       setEditingChildTaskTitle("");
       toast.success("Child task updated");
@@ -689,6 +773,98 @@ export default function TaskDetail() {
   const description = stripParentMarker(task?.description) || "No description";
   const isCurrentTaskChild = Boolean(extractParentTaskId(task?.description));
   const visibleTabs = isCurrentTaskChild ? tabs.filter((tab) => tab.id !== "children") : tabs;
+  const historyEntries = useMemo<HistoryEntry[]>(() => {
+    const fromActivity: HistoryEntry[] = activityEvents
+      .filter((event) => Boolean(event.occurredAt))
+      .map((event) => ({
+        id: `activity-${event.id}`,
+        at: event.occurredAt as string,
+        action: event.type || "activity",
+        details: event.message || event.type || "Activity updated",
+        actor: event.actor?.name,
+        source: "activity",
+      }));
+
+    const fromComments: HistoryEntry[] = comments
+      .filter((comment) => Boolean(comment.createdAt))
+      .map((comment) => ({
+        id: `comment-${comment.id}`,
+        at: comment.createdAt as string,
+        action: "task.commented",
+        details: comment.content || "Comment added",
+        actor: comment.author?.name,
+        source: "comment",
+      }));
+
+    const fromWorkLogs: HistoryEntry[] = workLogs
+      .filter((log) => Boolean(log.loggedAt))
+      .map((log) => {
+        const hours = Number(log.hours || 0);
+        const minutes = Math.max(0, Math.round(hours * 60));
+        return {
+          id: `worklog-${log.id}`,
+          at: log.loggedAt as string,
+          action: "task.work_logged",
+          details: `Logged ${formatMinutes(minutes)}`,
+          source: "worklog" as const,
+        };
+      });
+
+    const fromAttachments: HistoryEntry[] = attachments
+      .filter((attachment) => Boolean(attachment.addedAt))
+      .map((attachment) => ({
+        id: `attachment-${attachment.id}`,
+        at: attachment.addedAt as string,
+        action: "task.attachment_added",
+        details: `Attached file: ${attachment.file?.name || "File"}`,
+        source: "attachment",
+      }));
+
+    const fromResourceLinks: HistoryEntry[] = resourceLinks
+      .filter((resource) => Boolean(resource.createdAt))
+      .map((resource) => ({
+        id: `resource-${resource.id}`,
+        at: resource.createdAt as string,
+        action: "task.resource_linked",
+        details: `Linked resource: ${resource.title}`,
+        source: "resource",
+      }));
+
+    const fromTaskMeta: HistoryEntry[] = [
+      task?.createdAt
+        ? {
+            id: "task-created",
+            at: task.createdAt,
+            action: "task.created",
+            details: "Task created",
+            actor: task.createdBy?.name || task.createdById || undefined,
+            source: "task" as const,
+          }
+        : null,
+      task?.updatedAt
+        ? {
+            id: "task-updated",
+            at: task.updatedAt,
+            action: "task.updated",
+            details: "Task updated",
+            source: "task" as const,
+          }
+        : null,
+    ].filter((entry): entry is HistoryEntry => Boolean(entry));
+
+    return [...fromActivity, ...fromComments, ...fromWorkLogs, ...fromAttachments, ...fromResourceLinks, ...fromTaskMeta]
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  }, [
+    activityEvents,
+    attachments,
+    comments,
+    resourceLinks,
+    task?.createdAt,
+    task?.createdBy?.name,
+    task?.createdById,
+    task?.updatedAt,
+    workLogs,
+  ]);
 
   useEffect(() => {
     if (isCurrentTaskChild && activeTab === "children") {
@@ -1240,7 +1416,16 @@ export default function TaskDetail() {
                                 </>
                               ) : (
                                 <>
-                                  <p className={cn("flex-1 text-sm", (item.status || "").toUpperCase() === "DONE" && "line-through text-muted-foreground")}>{item.title}</p>
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "flex-1 text-left text-sm hover:underline",
+                                      (item.status || "").toUpperCase() === "DONE" && "line-through text-muted-foreground",
+                                    )}
+                                    onClick={() => navigate(`/${teamId}/tasks/${item.id}`)}
+                                  >
+                                    {item.title}
+                                  </button>
                                   <Button
                                     size="sm"
                                     variant="ghost"
@@ -1327,7 +1512,33 @@ export default function TaskDetail() {
                     <History className="w-4 h-4 text-primary" />
                     Activity History
                   </h3>
-                  <p className="text-sm text-muted-foreground">No activity history available.</p>
+                  {historyEntries.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No activity history available.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {historyEntries.map((entry) => (
+                        <div key={entry.id} className="rounded-lg border border-border bg-muted/20 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-medium">{entry.details}</p>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {new Date(entry.at).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="uppercase">{entry.source}</span>
+                            <span>•</span>
+                            <span>{entry.action}</span>
+                            {entry.actor ? (
+                              <>
+                                <span>•</span>
+                                <span>{entry.actor}</span>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -18,12 +18,25 @@ type ApiProject = {
 
 type ApiTask = {
   id: string;
+  taskId?: string;
+  description?: string | null;
   title?: string;
   status?: string;
   priority?: string;
   dueDate?: string | null;
   estimatedHours?: number | null;
+  task?: {
+    id?: string;
+    description?: string | null;
+    title?: string;
+    status?: string;
+    priority?: string;
+    dueDate?: string | null;
+    estimatedHours?: number | null;
+  };
 };
+
+const TASK_CHILD_MARKER_PREFIX = "__PARENT_TASK__:";
 
 export class ApiProjectService implements IProjectService {
   private normalizeStatus(status?: string): ProjectStatus {
@@ -77,19 +90,29 @@ export class ApiProjectService implements IProjectService {
   }
 
   private toTask(task: ApiTask): Task {
+    const source = task.task || task;
+    const taskId = source.id || task.taskId || task.id;
     return {
-      id: task.id,
-      title: task.title || "Untitled task",
-      status: this.normalizeTaskStatus(task.status),
-      priority: this.normalizeTaskPriority(task.priority),
+      id: taskId,
+      title: source.title || "Untitled task",
+      status: this.normalizeTaskStatus(source.status),
+      priority: this.normalizeTaskPriority(source.priority),
       assignee: "U",
       comments: 0,
       resources: [],
       createdBy: "",
       createdAt: "",
-      dueDate: task.dueDate ? new Date(task.dueDate).toLocaleDateString() : "-",
-      estimation: task.estimatedHours ? `${task.estimatedHours}h` : "-",
+      dueDate: source.dueDate ? new Date(source.dueDate).toLocaleDateString() : "-",
+      estimation: source.estimatedHours ? `${source.estimatedHours}h` : "-",
     };
+  }
+
+  private extractParentTaskId(description?: string | null): string | null {
+    if (!description) return null;
+    const firstLine = description.split("\n")[0]?.trim() || "";
+    if (!firstLine.startsWith(TASK_CHILD_MARKER_PREFIX)) return null;
+    const parentId = firstLine.slice(TASK_CHILD_MARKER_PREFIX.length).trim();
+    return parentId || null;
   }
 
   async getProjects(teamId: string): Promise<Project[]> {
@@ -99,7 +122,32 @@ export class ApiProjectService implements IProjectService {
         const uiProject = this.toProject(project);
         try {
           const tasks = await this.getTasks(teamId, project.id);
-          uiProject.tasks = tasks.map((task) => this.toTask(task as ApiTask));
+          const rawTasks = Array.isArray(tasks) ? (tasks as ApiTask[]) : [];
+          const uiTasks = rawTasks.map((task) => this.toTask(task));
+          const taskById = new Map(uiTasks.map((task) => [task.id, task]));
+
+          const parentMap = new Map<string, string>();
+          rawTasks.forEach((rawTask, index) => {
+            const source = rawTask.task || rawTask;
+            const childId = uiTasks[index]?.id;
+            const parentId = this.extractParentTaskId(source.description);
+            if (childId && parentId) {
+              parentMap.set(childId, parentId);
+            }
+          });
+
+          const rootTasks: Task[] = [];
+          uiTasks.forEach((uiTask) => {
+            const parentId = parentMap.get(uiTask.id);
+            const parentTask = parentId ? taskById.get(parentId) : null;
+            if (parentTask) {
+              parentTask.childTasks = [...(parentTask.childTasks || []), uiTask];
+              return;
+            }
+            rootTasks.push(uiTask);
+          });
+
+          uiProject.tasks = rootTasks;
         } catch {
           uiProject.tasks = [];
         }
