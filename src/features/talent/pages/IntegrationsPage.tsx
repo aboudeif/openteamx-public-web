@@ -16,49 +16,57 @@ import {
 import { toast } from "sonner";
 import { apiKeysService, integrationService } from "@/services";
 import type { ApiKeyItem } from "@/services/api/ApiApiKeysService";
-
-interface ProviderCategory {
-  category: string;
-  name: string;
-  providers: string[];
-}
+import { useParams } from "react-router-dom";
 
 interface IntegrationItem {
   id: string;
   provider: string;
   status: string;
   externalName?: string | null;
+  connectionMode?: "OAUTH" | "API" | "WEBHOOK" | "UNKNOWN";
 }
 
-const OAUTH_CONNECTABLE_PROVIDERS = [
+const REQUIRED_PROVIDERS = [
   "GITHUB",
   "GITLAB",
   "BITBUCKET",
-  "GOOGLE_CALENDAR",
-  "GOOGLE_DRIVE",
+  "AZURE_DEVOPS",
+  "GOOGLE",
+  "MICROSOFT_TEAMS",
+  "WEBEX",
+  "SKYPE",
+  "GOTO_MEETING",
+  "BLUEJEANS",
+  "JITSI",
+  "WHEREBY",
+  "OUTLOOK",
+  "FIGMA",
 ] as const;
 
-const OAUTH_CONNECTABLE_SET = new Set<string>(OAUTH_CONNECTABLE_PROVIDERS);
-
 const providerMeta: Record<string, { icon: string; description: string; name: string }> = {
-  GOOGLE_DRIVE: { icon: "📁", description: "Store and access your team's files", name: "Google Drive" },
-  GOOGLE_CALENDAR: { icon: "📅", description: "Calendar and scheduling sync", name: "Google Calendar" },
-  SLACK: { icon: "💬", description: "Team messaging and collaboration", name: "Slack" },
+  GOOGLE: { icon: "🟢", description: "Google account OAuth integration", name: "Google" },
   GITHUB: { icon: "🐙", description: "Version control and repositories", name: "GitHub" },
   GITLAB: { icon: "🦊", description: "DevOps platform and repositories", name: "GitLab" },
   BITBUCKET: { icon: "🪣", description: "Git repository hosting", name: "Bitbucket" },
   AZURE_DEVOPS: { icon: "🔷", description: "Planning, repos, and pipelines", name: "Azure DevOps" },
-  JIRA: { icon: "📋", description: "Agile project management", name: "Jira" },
-  NOTION: { icon: "📝", description: "All-in-one workspace", name: "Notion" },
-  TRELLO: { icon: "📌", description: "Visual project boards", name: "Trello" },
-  ZOOM: { icon: "🎥", description: "Video conferencing and meetings", name: "Zoom" },
-  GOOGLE_MEET: { icon: "📹", description: "Meetings and calls", name: "Google Meet" },
   MICROSOFT_TEAMS: { icon: "👥", description: "Team collaboration and meetings", name: "Microsoft Teams" },
+  WEBEX: { icon: "📡", description: "Cisco Webex meetings integration", name: "Webex" },
+  SKYPE: { icon: "📞", description: "Skype integration", name: "Skype" },
+  GOTO_MEETING: { icon: "🧭", description: "GoTo Meeting integration", name: "GoTo Meeting" },
+  BLUEJEANS: { icon: "💙", description: "BlueJeans meetings integration", name: "BlueJeans" },
   JITSI: { icon: "📞", description: "Open-source video meetings", name: "Jitsi" },
-  DROPBOX: { icon: "📦", description: "Cloud storage and sync", name: "Dropbox" },
+  WHEREBY: { icon: "🌐", description: "Whereby meetings integration", name: "Whereby" },
+  OUTLOOK: { icon: "📨", description: "Outlook account integration", name: "Outlook" },
   FIGMA: { icon: "🎨", description: "Design collaboration", name: "Figma" },
-  HUBSPOT: { icon: "🧲", description: "CRM and sales automation", name: "HubSpot" },
 };
+
+function normalizeProviderKey(provider: string): string {
+  const normalized = String(provider || "").toUpperCase().replace(/-/g, "_");
+  if (normalized === "GOOGLE_CALENDAR" || normalized === "GOOGLE_DRIVE") {
+    return "GOOGLE";
+  }
+  return normalized;
+}
 
 function toReadableProvider(provider: string): string {
   return provider
@@ -69,9 +77,9 @@ function toReadableProvider(provider: string): string {
 }
 
 export default function TalentIntegrations() {
+  const { teamId } = useParams();
   const [loading, setLoading] = useState(true);
   const [busyProvider, setBusyProvider] = useState<string | null>(null);
-  const [categories, setCategories] = useState<ProviderCategory[]>([]);
   const [connected, setConnected] = useState<IntegrationItem[]>([]);
 
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
@@ -82,30 +90,38 @@ export default function TalentIntegrations() {
   const [latestSecret, setLatestSecret] = useState<string | null>(null);
 
   const connectedMap = useMemo(
-    () => new Map(connected.map((item) => [item.provider.toUpperCase(), item])),
+    () => {
+      const map = new Map<string, IntegrationItem>();
+      for (const item of connected) {
+        map.set(normalizeProviderKey(item.provider), item);
+      }
+      return map;
+    },
     [connected],
+  );
+
+  const apiKeyProviderSet = useMemo(
+    () =>
+      new Set(
+        apiKeys
+          .map((key) => normalizeProviderKey(key.provider || ""))
+          .filter((provider) => provider.length > 0),
+      ),
+    [apiKeys],
   );
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [providersRes, connectedRes, apiKeysRes] = await Promise.all([
-        integrationService.getIntegrations(),
+      const [connectedRes, apiKeysRes] = await Promise.all([
         integrationService.getConnectedIntegrations(),
         apiKeysService.list(),
       ]);
-
-      const providerCategories = Array.isArray((providersRes as any)?.categories)
-        ? (providersRes as any).categories
-        : [];
-
-      setCategories(providerCategories);
       setConnected(Array.isArray(connectedRes) ? connectedRes : []);
       setApiKeys(Array.isArray(apiKeysRes) ? apiKeysRes : []);
     } catch (error) {
       console.error("Failed to load integrations", error);
       toast.error("Failed to load integrations data");
-      setCategories([]);
       setConnected([]);
       setApiKeys([]);
     } finally {
@@ -118,46 +134,37 @@ export default function TalentIntegrations() {
   }, []);
 
   const providers = useMemo(() => {
-    const unique = new Map<string, { provider: string; name: string; icon: string; description: string; connected: boolean }>();
-
-    for (const category of categories) {
-      for (const provider of category.providers) {
-        const key = provider.toUpperCase();
-        if (!OAUTH_CONNECTABLE_SET.has(key)) continue;
-        if (unique.has(key)) continue;
-
-        const meta = providerMeta[key];
-        const connectedItem = connectedMap.get(key);
-        const isConnected = !!connectedItem && connectedItem.status !== "DISCONNECTED";
-
-        unique.set(key, {
-          provider: key,
-          name: meta?.name ?? toReadableProvider(key),
-          icon: meta?.icon ?? "🔌",
-          description: meta?.description ?? `Connect with ${toReadableProvider(key)}`,
-          connected: isConnected,
-        });
-      }
-    }
-
-    for (const provider of OAUTH_CONNECTABLE_PROVIDERS) {
-      if (unique.has(provider)) continue;
-
+    return REQUIRED_PROVIDERS.map((provider) => {
       const meta = providerMeta[provider];
       const connectedItem = connectedMap.get(provider);
       const isConnected = !!connectedItem && connectedItem.status !== "DISCONNECTED";
+      const connectionMode = connectedItem?.connectionMode || "UNKNOWN";
+      const hasApiKey = apiKeyProviderSet.has(provider);
 
-      unique.set(provider, {
+      const oauthBlockedReason =
+        !isConnected && hasApiKey
+          ? "Blocked by API/Webhook setup"
+          : !isConnected && connectedItem && connectionMode !== "OAUTH"
+            ? "Blocked by API/Webhook setup"
+            : null;
+
+      const apiBlockedReason =
+        isConnected && connectionMode === "OAUTH"
+          ? "Blocked by OAuth setup"
+          : null;
+
+      return {
         provider,
         name: meta?.name ?? toReadableProvider(provider),
         icon: meta?.icon ?? "🔌",
         description: meta?.description ?? `Connect with ${toReadableProvider(provider)}`,
         connected: isConnected,
-      });
-    }
-
-    return Array.from(unique.values());
-  }, [categories, connectedMap]);
+        connectionMode,
+        oauthBlockedReason,
+        apiBlockedReason,
+      };
+    });
+  }, [apiKeyProviderSet, connectedMap]);
 
   useEffect(() => {
     if (!providers.length) return;
@@ -166,7 +173,39 @@ export default function TalentIntegrations() {
     }
   }, [providers, keyProvider]);
 
-  const handleToggleIntegration = async (provider: string, isConnected: boolean) => {
+  const openFloatingOAuthWindow = (redirectUrl: string, provider: string) => {
+    const width = 620;
+    const height = 760;
+    const left = window.screenX + Math.max(0, Math.floor((window.outerWidth - width) / 2));
+    const top = window.screenY + Math.max(0, Math.floor((window.outerHeight - height) / 2));
+    const popup = window.open(
+      redirectUrl,
+      `integration_oauth_${provider}_${Date.now()}`,
+      `popup=yes,width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`,
+    );
+
+    if (!popup) {
+      window.location.href = redirectUrl;
+      return;
+    }
+
+    const pollTimer = window.setInterval(() => {
+      if (!popup.closed) return;
+      window.clearInterval(pollTimer);
+      void loadData();
+    }, 700);
+  };
+
+  const handleToggleIntegration = async (
+    provider: string,
+    isConnected: boolean,
+    oauthBlockedReason?: string | null,
+  ) => {
+    if (!isConnected && oauthBlockedReason) {
+      toast.error(`${toReadableProvider(provider)} ${oauthBlockedReason}`);
+      return;
+    }
+
     setBusyProvider(provider);
     try {
       if (isConnected) {
@@ -174,12 +213,12 @@ export default function TalentIntegrations() {
         if (!confirmed) {
           return;
         }
-        await integrationService.disconnectIntegration(provider);
+        await integrationService.disconnectIntegration(provider, teamId);
         toast.success("Integration disconnected");
         await loadData();
       } else {
-        const redirectUrl = integrationService.getConnectUrl(provider);
-        window.location.href = redirectUrl;
+        const redirectUrl = integrationService.getConnectUrl(provider, teamId);
+        openFloatingOAuthWindow(redirectUrl, provider);
       }
     } catch (error) {
       console.error("Failed to update integration", error);
@@ -214,6 +253,8 @@ export default function TalentIntegrations() {
       setCreatingKey(false);
     }
   };
+
+  const selectedProvider = providers.find((provider) => provider.provider === keyProvider) || null;
 
   const handleRotateKey = async (keyId: string) => {
     setKeyActionId(keyId);
@@ -293,14 +334,25 @@ export default function TalentIntegrations() {
                         </div>
                       </div>
                       {integration.connected && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Connected</Badge>}
+                      {!integration.connected && integration.oauthBlockedReason && (
+                        <Badge variant="outline" className="text-amber-700 border-amber-300">
+                          {integration.oauthBlockedReason}
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex justify-end">
                       <Button
                         size="sm"
                         variant={integration.connected ? "outline" : "default"}
-                        disabled={busyProvider === integration.provider}
-                        onClick={() => handleToggleIntegration(integration.provider, integration.connected)}
+                        disabled={busyProvider === integration.provider || (!integration.connected && !!integration.oauthBlockedReason)}
+                        onClick={() =>
+                          handleToggleIntegration(
+                            integration.provider,
+                            integration.connected,
+                            integration.oauthBlockedReason,
+                          )
+                        }
                       >
                         {busyProvider === integration.provider
                           ? integration.connected
@@ -343,12 +395,13 @@ export default function TalentIntegrations() {
                       <button
                         key={provider.provider}
                         type="button"
+                        disabled={!!provider.apiBlockedReason}
                         onClick={() => setKeyProvider(provider.provider)}
                         className={`text-left p-3 rounded-lg border transition-colors ${
                           keyProvider === provider.provider
                             ? "border-primary bg-primary/10"
                             : "border-border bg-background hover:border-primary/40"
-                        }`}
+                        } ${provider.apiBlockedReason ? "opacity-60 cursor-not-allowed hover:border-border" : ""}`}
                       >
                         <div className="flex items-start justify-between gap-2 mb-1">
                           <span className="text-xl leading-none">{provider.icon}</span>
@@ -360,13 +413,24 @@ export default function TalentIntegrations() {
                         </div>
                         <p className="font-medium text-sm">{provider.name}</p>
                         <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{provider.description}</p>
+                        {provider.apiBlockedReason && (
+                          <p className="text-xs text-amber-700 mt-1">{provider.apiBlockedReason}</p>
+                        )}
                       </button>
                     ))}
                   </div>
                 </div>
 
                 <div className="flex justify-end">
-                  <Button onClick={handleCreateKey} disabled={creatingKey || providers.length === 0 || !keyProvider}>
+                  <Button
+                    onClick={handleCreateKey}
+                    disabled={
+                      creatingKey ||
+                      providers.length === 0 ||
+                      !keyProvider ||
+                      !!selectedProvider?.apiBlockedReason
+                    }
+                  >
                     {creatingKey ? "Creating..." : "Create Key"}
                   </Button>
                 </div>
@@ -375,6 +439,11 @@ export default function TalentIntegrations() {
               {providers.length > 0 && !providers.some((provider) => provider.connected && provider.provider === keyProvider) && (
                 <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800">
                   Selected provider is not connected yet. You can still create a key, but connect first for full integration flow.
+                </div>
+              )}
+              {selectedProvider?.apiBlockedReason && (
+                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-sm text-amber-800">
+                  {selectedProvider.name} {selectedProvider.apiBlockedReason}
                 </div>
               )}
 
