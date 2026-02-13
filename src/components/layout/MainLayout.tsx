@@ -16,7 +16,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <div className="sticky top-0 z-20 bg-background">
           <AppHorizontalnavbar />
         </div>
-        <main className="flex-1 overflow-auto" role="main">
+        <main className="flex-1 overflow-hidden" role="main">
           {children}
         </main>
       </div>

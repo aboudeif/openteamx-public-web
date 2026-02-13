@@ -195,7 +195,7 @@ export default function TaskDetail() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-screen">
+      <div className="flex flex-col h-[calc(100vh-120px)] overflow-hidden">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 px-6 py-3 border-b border-border bg-card text-sm">
           

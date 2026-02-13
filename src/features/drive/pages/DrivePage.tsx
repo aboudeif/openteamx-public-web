@@ -164,7 +164,7 @@ export default function TeamDrive() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-screen">
+      <div className="flex flex-col h-[calc(100vh-120px)]">
         {/* Header */}
         <div className="p-4 border-b border-border bg-card">
           <div className="flex items-center justify-between mb-4">

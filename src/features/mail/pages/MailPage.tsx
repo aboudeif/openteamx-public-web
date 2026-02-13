@@ -833,7 +833,7 @@ export default function TeamMail() {
 
   return (
     <MainLayout>
-      <div className="flex h-screen">
+      <div className="flex h-[calc(100vh-120px)] overflow-hidden">
         <div className="w-56 border-r border-border bg-card p-4 flex flex-col">
           <Button className="mb-4 w-full" onClick={handleCompose}>Compose</Button>
           <nav className="space-y-1">

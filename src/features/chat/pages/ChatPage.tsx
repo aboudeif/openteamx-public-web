@@ -271,7 +271,7 @@ export default function TeamChat() {
 
   return (
     <MainLayout>
-      <div className="flex h-full min-h-0 overflow-hidden">
+      <div className="flex h-[calc(100vh-120px)] min-h-0 overflow-hidden">
         <div className="w-60 border-r border-border bg-card flex flex-col min-h-0">
           <div className="p-4 border-b border-border">
             <div className="relative">

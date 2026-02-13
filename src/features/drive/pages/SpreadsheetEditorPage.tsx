@@ -59,7 +59,7 @@ export default function SpreadsheetEditor() {
 
   return (
     <MainLayout>
-      <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      <div className="flex flex-col h-[calc(100vh-120px)]">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border bg-card">
           <div className="flex items-center gap-3">

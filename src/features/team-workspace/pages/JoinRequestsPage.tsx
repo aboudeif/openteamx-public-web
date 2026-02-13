@@ -95,7 +95,7 @@ export default function TeamJoinRequests() {
 
   return (
     <MainLayout>
-      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+      <div className="h-[calc(100vh-120px)] overflow-auto p-6 lg:p-8 max-w-5xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
