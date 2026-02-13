@@ -35,6 +35,22 @@ interface RequestOptions extends RequestInit {
   data?: unknown;
 }
 
+type ApiEnvelope<T> = {
+  success: boolean;
+  data: T;
+  meta?: unknown;
+};
+
+function isApiEnvelope<T>(payload: unknown): payload is ApiEnvelope<T> {
+  return (
+    Boolean(payload) &&
+    typeof payload === "object" &&
+    "success" in payload &&
+    typeof (payload as { success?: unknown }).success === "boolean" &&
+    "data" in payload
+  );
+}
+
 export class ApiError extends Error {
   status: number;
   details?: unknown;
@@ -106,5 +122,10 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
     return {} as T;
   }
 
-  return response.json();
+  const payload: unknown = await response.json();
+  if (isApiEnvelope<T>(payload)) {
+    return payload.data;
+  }
+
+  return payload as T;
 }
