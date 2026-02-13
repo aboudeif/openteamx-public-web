@@ -18,6 +18,7 @@ import { ApiMeetingService } from "./api/ApiMeetingService";
 import { ApiMeetingNotesService } from "./api/ApiMeetingNotesService";
 import { ApiIntegrationService } from "./api/ApiIntegrationService";
 import { ApiHelpCenterService } from "./api/ApiHelpCenterService";
+import { ApiApiKeysService } from "./api/ApiApiKeysService";
 
 import { IChatService } from "./interfaces/IChatService";
 import { IDriveService } from "./interfaces/IDriveService";
@@ -62,3 +63,4 @@ export const meetingService = new ApiMeetingService();
 export const meetingNotesService = new ApiMeetingNotesService();
 export const integrationService = new ApiIntegrationService();
 export const helpCenterService = new ApiHelpCenterService();
+export const apiKeysService = new ApiApiKeysService();
