@@ -46,6 +46,28 @@ type RawTeamMember = {
   };
 };
 
+const TASK_CHILD_MARKER_PREFIX = "__PARENT_TASK__:";
+
+function extractChildParentId(description?: string | null): string | null {
+  if (!description) return null;
+  const firstLine = description.split("\n")[0]?.trim() || "";
+  if (!firstLine.startsWith(TASK_CHILD_MARKER_PREFIX)) return null;
+  const parentId = firstLine.slice(TASK_CHILD_MARKER_PREFIX.length).trim();
+  return parentId || null;
+}
+
+function stripChildMarker(description?: string | null): string {
+  if (!description) return "";
+  const lines = description.split("\n");
+  if (!lines[0]?.trim().startsWith(TASK_CHILD_MARKER_PREFIX)) return description;
+  return lines.slice(1).join("\n").trim();
+}
+
+function buildChildDescription(parentId: string, content: string): string {
+  const clean = content.trim();
+  return clean ? `${TASK_CHILD_MARKER_PREFIX}${parentId}\n${clean}` : `${TASK_CHILD_MARKER_PREFIX}${parentId}`;
+}
+
 export function AddTaskModal({
   open,
   onOpenChange,
@@ -136,7 +158,7 @@ export function AddTaskModal({
     }
 
     setTitle(taskToEdit.title || "");
-    setDescription(taskToEdit.description || "");
+    setDescription(stripChildMarker(taskToEdit.description || ""));
     setPriority((taskToEdit.priority || "MEDIUM").toLowerCase());
     setAssignee(taskToEdit.currentAssigneeId || "");
     setDueDate(
@@ -166,9 +188,10 @@ export function AddTaskModal({
     try {
       setIsCreating(true);
       if (isEditMode && taskToEdit) {
+        const parentId = extractChildParentId(taskToEdit.description);
         await api.patch(`/teams/${teamId}/tasks/${taskToEdit.id}`, {
           title: title.trim(),
-          description: description.trim(),
+          description: parentId ? buildChildDescription(parentId, description) : description.trim(),
           priority: priority.toUpperCase(),
           dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
         });

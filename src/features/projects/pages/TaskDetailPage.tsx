@@ -121,6 +121,35 @@ type ApiWorkLog = {
   loggedAt?: string;
 };
 
+type ApiTaskAttachment = {
+  id: string;
+  fileId?: string;
+  addedAt?: string;
+  file?: {
+    id?: string;
+    name?: string;
+  };
+};
+
+type TeamDriveFile = {
+  id: string;
+  name: string;
+};
+
+type ResourceLink = {
+  id: string;
+  title: string;
+  url: string;
+  createdAt?: string;
+};
+
+type ChildTask = {
+  id: string;
+  title: string;
+  status?: string;
+  description?: string | null;
+};
+
 type TeamMemberOption = {
   userId: string;
   userName: string;
@@ -136,6 +165,29 @@ const tabs = [
   { id: "comments" as TabId, label: "Comments", icon: MessageSquare },
   { id: "history" as TabId, label: "History", icon: History },
 ];
+
+const TASK_RESOURCE_LINK_PREFIX = "__TASK_RESOURCE_LINK__";
+const TASK_CHILD_MARKER_PREFIX = "__PARENT_TASK__:";
+
+function extractParentTaskId(description?: string | null): string | null {
+  if (!description) return null;
+  const firstLine = description.split("\n")[0]?.trim() || "";
+  if (!firstLine.startsWith(TASK_CHILD_MARKER_PREFIX)) return null;
+  const parentId = firstLine.slice(TASK_CHILD_MARKER_PREFIX.length).trim();
+  return parentId || null;
+}
+
+function stripParentMarker(description?: string | null): string {
+  if (!description) return "";
+  const lines = description.split("\n");
+  if (!lines[0]?.trim().startsWith(TASK_CHILD_MARKER_PREFIX)) return description;
+  return lines.slice(1).join("\n").trim();
+}
+
+function buildDescriptionWithParent(parentTaskId: string, content?: string): string {
+  const clean = (content || "").trim();
+  return clean ? `${TASK_CHILD_MARKER_PREFIX}${parentTaskId}\n${clean}` : `${TASK_CHILD_MARKER_PREFIX}${parentTaskId}`;
+}
 
 export default function TaskDetail() {
   const { teamId, taskId } = useParams();
@@ -159,6 +211,16 @@ export default function TaskDetail() {
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [isEditingStory, setIsEditingStory] = useState(false);
   const [storyDraft, setStoryDraft] = useState("");
+  const [attachments, setAttachments] = useState<ApiTaskAttachment[]>([]);
+  const [teamDriveFiles, setTeamDriveFiles] = useState<TeamDriveFile[]>([]);
+  const [resourceLinks, setResourceLinks] = useState<ResourceLink[]>([]);
+  const [showAddResourcePanel, setShowAddResourcePanel] = useState(false);
+  const [newResourceLinkTitle, setNewResourceLinkTitle] = useState("");
+  const [newResourceLinkUrl, setNewResourceLinkUrl] = useState("");
+  const [childTasks, setChildTasks] = useState<ChildTask[]>([]);
+  const [newChildTaskTitle, setNewChildTaskTitle] = useState("");
+  const [editingChildTaskId, setEditingChildTaskId] = useState<string | null>(null);
+  const [editingChildTaskTitle, setEditingChildTaskTitle] = useState("");
 
   // Estimation state
   const [estimations, setEstimations] = useState<EstimationPeriod[]>([]);
@@ -177,7 +239,31 @@ export default function TaskDetail() {
       ]);
 
       setTask(taskResponse);
-      setComments(Array.isArray(commentResponse) ? commentResponse : []);
+      const allComments = Array.isArray(commentResponse) ? commentResponse : [];
+      const parsedLinks: ResourceLink[] = [];
+      const plainComments = allComments.filter((comment) => {
+        const content = comment.content || "";
+        if (!content.startsWith(TASK_RESOURCE_LINK_PREFIX)) {
+          return true;
+        }
+
+        try {
+          const payload = JSON.parse(content.slice(TASK_RESOURCE_LINK_PREFIX.length)) as { title?: string; url?: string };
+          if (payload?.url) {
+            parsedLinks.push({
+              id: comment.id,
+              title: payload.title || payload.url,
+              url: payload.url,
+              createdAt: comment.createdAt,
+            });
+          }
+        } catch {
+          // Keep malformed marker comments hidden from normal comments UI.
+        }
+        return false;
+      });
+      setComments(plainComments);
+      setResourceLinks(parsedLinks);
 
       const estimated = Number(taskResponse?.estimatedHours || 0);
       setEstimations(
@@ -201,6 +287,26 @@ export default function TaskDetail() {
           };
         }),
       );
+
+      const attachmentsResponse = await api
+        .get<ApiTaskAttachment[]>(`/teams/${teamId}/tasks/${taskId}/attachments`)
+        .catch(() => []);
+      setAttachments(Array.isArray(attachmentsResponse) ? attachmentsResponse : []);
+
+      if (taskResponse?.projectId) {
+        const projectTasksResponse = await api
+          .get<ChildTask[]>(`/projects/${taskResponse.projectId}/tasks`)
+          .catch(() => []);
+        const projectTasks = Array.isArray(projectTasksResponse) ? projectTasksResponse : [];
+        const children = projectTasks.filter(
+          (projectTask) =>
+            projectTask.id !== taskResponse.id &&
+            extractParentTaskId(projectTask.description) === taskResponse.id,
+        );
+        setChildTasks(children);
+      } else {
+        setChildTasks([]);
+      }
 
       if (taskResponse?.projectId) {
         try {
@@ -226,7 +332,7 @@ export default function TaskDetail() {
   }, [loadTaskDetails]);
 
   useEffect(() => {
-    setStoryDraft(task?.description || "");
+    setStoryDraft(stripParentMarker(task?.description || ""));
   }, [task?.description]);
 
   useEffect(() => {
@@ -248,6 +354,24 @@ export default function TaskDetail() {
       }
     };
     void loadMembers();
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!teamId) return;
+    const loadTeamFiles = async () => {
+      try {
+        const files = await api.get<Array<{ id?: string; name?: string }>>(`/teams/${teamId}/files`);
+        const normalized = Array.isArray(files)
+          ? files
+              .map((file) => ({ id: file.id || "", name: file.name || "Unnamed file" }))
+              .filter((file) => Boolean(file.id))
+          : [];
+        setTeamDriveFiles(normalized);
+      } catch {
+        setTeamDriveFiles([]);
+      }
+    };
+    void loadTeamFiles();
   }, [teamId]);
 
   const totalEstimatedMinutes = estimations.reduce((sum, e) => sum + e.minutes, 0);
@@ -296,12 +420,162 @@ export default function TaskDetail() {
     }
   };
 
+  const attachDriveFile = async (fileId: string) => {
+    if (!teamId || !taskId || !fileId) return;
+    try {
+      setIsActionLoading(true);
+      await api.post(`/teams/${teamId}/tasks/${taskId}/attachments`, { fileId });
+      toast.success("File attached");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to attach file";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const removeAttachment = async (attachmentId: string) => {
+    if (!teamId || !taskId) return;
+    try {
+      setIsActionLoading(true);
+      await api.delete(`/teams/${teamId}/tasks/${taskId}/attachments/${attachmentId}`);
+      toast.success("Resource removed");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to remove resource";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const addResourceLink = async () => {
+    if (!teamId || !taskId) return;
+    const url = newResourceLinkUrl.trim();
+    if (!url) {
+      toast.error("Link URL is required");
+      return;
+    }
+
+    const title = newResourceLinkTitle.trim() || url;
+    const marker = `${TASK_RESOURCE_LINK_PREFIX}${JSON.stringify({ title, url })}`;
+
+    try {
+      setIsActionLoading(true);
+      await api.post(`/teams/${teamId}/tasks/${taskId}/comments`, { content: marker });
+      setNewResourceLinkTitle("");
+      setNewResourceLinkUrl("");
+      toast.success("Link added");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to add link";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const removeResourceLink = async (commentId: string) => {
+    if (!teamId || !taskId) return;
+    try {
+      setIsActionLoading(true);
+      await api.delete(`/teams/${teamId}/tasks/${taskId}/comments/${commentId}`);
+      toast.success("Link removed");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to remove link";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const addChildTask = async () => {
+    if (!teamId || !taskId || !task?.projectId || !newChildTaskTitle.trim()) return;
+    try {
+      setIsActionLoading(true);
+      const createdTask = await api.post<{ id: string }>(`/teams/${teamId}/tasks`, {
+        title: newChildTaskTitle.trim(),
+        description: buildDescriptionWithParent(taskId),
+        priority: "MEDIUM",
+      });
+      if (createdTask?.id) {
+        await api.post(`/projects/${task.projectId}/tasks/${createdTask.id}`);
+      }
+      setNewChildTaskTitle("");
+      toast.success("Child task added");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to add child task";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const toggleChildTask = async (itemId: string, currentStatus?: string) => {
+    if (!teamId || !taskId) return;
+    try {
+      setIsActionLoading(true);
+      const nextStatus = (currentStatus || "").toUpperCase() === "DONE" ? "TODO" : "DONE";
+      await api.patch(`/teams/${teamId}/tasks/${itemId}`, { status: nextStatus });
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update child task";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const startEditChildTask = (item: ChildTask) => {
+    setEditingChildTaskId(item.id);
+    setEditingChildTaskTitle(item.title);
+  };
+
+  const saveChildTaskTitle = async () => {
+    if (!teamId || !taskId || !editingChildTaskId || !editingChildTaskTitle.trim()) return;
+    try {
+      setIsActionLoading(true);
+      await api.patch(`/teams/${teamId}/tasks/${editingChildTaskId}`, {
+        title: editingChildTaskTitle.trim(),
+      });
+      setEditingChildTaskId(null);
+      setEditingChildTaskTitle("");
+      toast.success("Child task updated");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update child task";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const deleteChildTask = async (itemId: string) => {
+    if (!teamId || !taskId) return;
+    try {
+      setIsActionLoading(true);
+      await api.delete(`/teams/${teamId}/tasks/${itemId}`);
+      toast.success("Child task removed");
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to remove child task";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   const saveUserStory = async () => {
     if (!teamId || !taskId) return;
     try {
       setIsActionLoading(true);
       await api.patch(`/teams/${teamId}/tasks/${taskId}`, {
-        description: storyDraft.trim(),
+        description: extractParentTaskId(task?.description)
+          ? buildDescriptionWithParent(extractParentTaskId(task?.description) as string, storyDraft)
+          : storyDraft.trim(),
       });
       toast.success("User Story updated");
       setIsEditingStory(false);
@@ -412,7 +686,15 @@ export default function TaskDetail() {
     : "-";
   const createdByLabel = task?.createdBy?.name || task?.createdById || "-";
   const title = task?.title || "Task";
-  const description = task?.description || "No description";
+  const description = stripParentMarker(task?.description) || "No description";
+  const isCurrentTaskChild = Boolean(extractParentTaskId(task?.description));
+  const visibleTabs = isCurrentTaskChild ? tabs.filter((tab) => tab.id !== "children") : tabs;
+
+  useEffect(() => {
+    if (isCurrentTaskChild && activeTab === "children") {
+      setActiveTab("story");
+    }
+  }, [isCurrentTaskChild, activeTab]);
 
   if (isLoading && !task) {
     return (
@@ -592,7 +874,7 @@ export default function TaskDetail() {
               {/* Tabs */}
               <div className="mt-6 border-t border-border pt-4">
                 <div className="flex items-center gap-1 overflow-x-auto pb-2">
-                  {tabs.map((tab) => (
+                  {visibleTabs.map((tab) => (
                     <button
                       key={tab.id}
                       onClick={() => setActiveTab(tab.id)}
@@ -612,7 +894,7 @@ export default function TaskDetail() {
                       )}
                       {tab.id === "children" && (
                         <span className="px-1.5 py-0.5 rounded-full bg-primary-foreground/20 text-[10px]">
-                          {0}
+                          {isCurrentTaskChild ? 0 : childTasks.length}
                         </span>
                       )}
                     </button>
@@ -675,12 +957,103 @@ export default function TaskDetail() {
                       <Link className="w-4 h-4 text-primary" />
                       Resources
                     </h3>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => setShowAddResourcePanel((prev) => !prev)}>
                       <Plus className="w-4 h-4 mr-1" />
-                      Add Resource
+                      {showAddResourcePanel ? "Close" : "Add Resource"}
                     </Button>
                   </div>
-                  <p className="text-sm text-muted-foreground">No linked resources yet.</p>
+
+                  {showAddResourcePanel && (
+                    <div className="mb-4 rounded-lg border border-border bg-muted/20 p-4 space-y-4">
+                      <div>
+                        <p className="text-sm font-medium mb-2">Attach From Team Drive</p>
+                        {teamDriveFiles.length === 0 ? (
+                          <p className="text-xs text-muted-foreground">No team files found.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {teamDriveFiles.slice(0, 15).map((file) => (
+                              <Button
+                                key={file.id}
+                                size="sm"
+                                variant="outline"
+                                disabled={isActionLoading}
+                                onClick={() => attachDriveFile(file.id)}
+                              >
+                                {file.name}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="border-t border-border pt-4">
+                        <p className="text-sm font-medium mb-2">Add Link Resource</p>
+                        <div className="grid gap-2">
+                          <Input
+                            value={newResourceLinkTitle}
+                            onChange={(e) => setNewResourceLinkTitle(e.target.value)}
+                            placeholder="Link title (optional)"
+                          />
+                          <Input
+                            value={newResourceLinkUrl}
+                            onChange={(e) => setNewResourceLinkUrl(e.target.value)}
+                            placeholder="https://..."
+                          />
+                          <div>
+                            <Button size="sm" onClick={addResourceLink} disabled={isActionLoading}>
+                              {isActionLoading ? "Saving..." : "Add Link"}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {attachments.map((attachment) => (
+                      <div key={attachment.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium truncate">{attachment.file?.name || "Attachment"}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {attachment.addedAt ? new Date(attachment.addedAt).toLocaleString() : ""}
+                          </p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          disabled={isActionLoading}
+                          onClick={() => removeAttachment(attachment.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+
+                    {resourceLinks.map((linkItem) => (
+                      <div key={linkItem.id} className="flex items-center justify-between rounded-lg border border-border p-3">
+                        <div className="min-w-0">
+                          <a href={linkItem.url} target="_blank" rel="noreferrer" className="text-sm font-medium text-primary hover:underline truncate block">
+                            {linkItem.title}
+                          </a>
+                          <p className="text-xs text-muted-foreground truncate">{linkItem.url}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive"
+                          disabled={isActionLoading}
+                          onClick={() => removeResourceLink(linkItem.id)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+
+                    {attachments.length === 0 && resourceLinks.length === 0 && (
+                      <p className="text-sm text-muted-foreground">No linked resources yet.</p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -806,12 +1179,90 @@ export default function TaskDetail() {
                       <ListTodo className="w-4 h-4 text-primary" />
                       Child Tasks
                     </h3>
-                    <Button variant="outline" size="sm">
-                      <Plus className="w-4 h-4 mr-1" />
-                      Add Child Task
-                    </Button>
                   </div>
-                  <p className="text-sm text-muted-foreground">No child tasks yet.</p>
+
+                  {isCurrentTaskChild ? (
+                    <p className="text-sm text-muted-foreground">This is already a child task. Nested child tasks are not allowed.</p>
+                  ) : (
+                    <div className="flex gap-2 mb-4">
+                      <Input
+                        value={newChildTaskTitle}
+                        onChange={(e) => setNewChildTaskTitle(e.target.value)}
+                        placeholder="Add child task title..."
+                        onKeyDown={(e) => e.key === "Enter" && addChildTask()}
+                      />
+                      <Button onClick={addChildTask} disabled={isActionLoading || !newChildTaskTitle.trim()}>
+                        <Plus className="w-4 h-4 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+                  )}
+
+                  {!isCurrentTaskChild && (
+                    childTasks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No child tasks yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {childTasks.map((item) => (
+                          <div key={item.id} className="rounded-lg border border-border p-3 bg-muted/20">
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant={(item.status || "").toUpperCase() === "DONE" ? "default" : "outline"}
+                                size="sm"
+                                disabled={isActionLoading}
+                                onClick={() => toggleChildTask(item.id, item.status)}
+                              >
+                                {(item.status || "").toUpperCase() === "DONE" ? "Done" : "Todo"}
+                              </Button>
+
+                              {editingChildTaskId === item.id ? (
+                                <>
+                                  <Input
+                                    value={editingChildTaskTitle}
+                                    onChange={(e) => setEditingChildTaskTitle(e.target.value)}
+                                    className="flex-1"
+                                    onKeyDown={(e) => e.key === "Enter" && saveChildTaskTitle()}
+                                  />
+                                  <Button size="sm" onClick={saveChildTaskTitle} disabled={isActionLoading || !editingChildTaskTitle.trim()}>
+                                    Save
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingChildTaskId(null);
+                                      setEditingChildTaskTitle("");
+                                    }}
+                                    disabled={isActionLoading}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <p className={cn("flex-1 text-sm", (item.status || "").toUpperCase() === "DONE" && "line-through text-muted-foreground")}>{item.title}</p>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => navigate(`/${teamId}/tasks/${item.id}`)}
+                                    disabled={isActionLoading}
+                                  >
+                                    Open
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={() => startEditChildTask(item)} disabled={isActionLoading}>
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteChildTask(item.id)} disabled={isActionLoading}>
+                                    Delete
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  )}
                 </div>
               )}
 
