@@ -37,11 +37,20 @@ interface RequestOptions extends RequestInit {
 
 export class ApiError extends Error {
   status: number;
+  details?: unknown;
 
-  constructor(status: number, statusText: string) {
-    super(`API Error: ${status} ${statusText}`);
+  constructor(status: number, statusText: string, details?: unknown) {
+    const message =
+      details &&
+      typeof details === "object" &&
+      "message" in details &&
+      typeof (details as { message?: unknown }).message === "string"
+        ? (details as { message: string }).message
+        : `API Error: ${status} ${statusText}`;
+    super(message);
     this.name = "ApiError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -82,7 +91,14 @@ async function request<T>(url: string, options: RequestOptions = {}): Promise<T>
   const response = await fetch(`${BASE_URL}${url}`, config);
 
   if (!response.ok) {
-    throw new ApiError(response.status, response.statusText);
+    let errorDetails: unknown;
+    try {
+      errorDetails = await response.json();
+    } catch {
+      errorDetails = undefined;
+    }
+
+    throw new ApiError(response.status, response.statusText, errorDetails);
   }
 
   // Handle empty responses

@@ -8,6 +8,7 @@ import { CreateTeamModal } from "@/features/talent/components/CreateTeamModal";
 import { TeamSettingsModal } from "@/features/talent/components/TeamSettingsModal";
 import { useNavigate } from "react-router-dom";
 import { ApiTeamService } from "@/services/api/ApiTeamService";
+import { useLeaveTeam } from "@/hooks/useTeams";
 import type { Team } from "@/shared/types";
 import {
   Users,
@@ -18,7 +19,9 @@ import {
   Calendar,
   Building2,
   Loader2,
+  LogOut,
 } from "lucide-react";
+import { toast } from "sonner";
 
 type ExTeam = {
   id: string;
@@ -59,6 +62,7 @@ export default function MyTeams() {
     description?: string;
   } | null>(null);
   const navigate = useNavigate();
+  const { mutate: leaveTeam, isPending: leavingTeam } = useLeaveTeam();
 
   const {
     data: activeTeams = [],
@@ -98,6 +102,23 @@ export default function MyTeams() {
     e.stopPropagation();
     setSelectedTeam(team);
     setShowSettingsModal(true);
+  };
+
+  const handleLeaveTeam = (e: React.MouseEvent, team: { id: string; name: string }) => {
+    e.stopPropagation();
+
+    if (!window.confirm(`Leave team "${team.name}"?`)) {
+      return;
+    }
+
+    leaveTeam(team.id, {
+      onSuccess: () => {
+        toast.success(`You left ${team.name}`);
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || "Failed to leave team");
+      },
+    });
   };
 
   return (
@@ -154,6 +175,14 @@ export default function MyTeams() {
                       aria-label={`${team.name} settings`}
                     >
                       <Settings className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                    <button
+                      onClick={(e) => handleLeaveTeam(e, { id: team.id, name: team.name })}
+                      className="absolute top-3 right-11 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all"
+                      aria-label={`Leave ${team.name}`}
+                      disabled={leavingTeam}
+                    >
+                      <LogOut className="w-4 h-4 text-destructive" />
                     </button>
 
                     <div className="flex items-start gap-3">

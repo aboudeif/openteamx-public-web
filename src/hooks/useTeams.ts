@@ -48,6 +48,8 @@ export const useCreateTeam = () => {
       queryClient.setQueryData<Team[]>([TEAMS_QUERY_KEY], (oldTeams) =>
         Array.isArray(oldTeams) ? [...oldTeams, newTeam] : [newTeam]
       );
+      queryClient.invalidateQueries({ queryKey: ['my-active-teams'] });
+      queryClient.invalidateQueries({ queryKey: ['my-ex-teams'] });
     },
   });
 };
@@ -60,6 +62,21 @@ export const useJoinTeam = (teamId: string) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [TEAMS_QUERY_KEY] });
       queryClient.invalidateQueries({ queryKey: [TEAM_DETAILS_KEY, teamId] });
+      queryClient.invalidateQueries({ queryKey: ['my-active-teams'] });
+      queryClient.invalidateQueries({ queryKey: ['my-ex-teams'] });
+    },
+  });
+};
+
+export const useLeaveTeam = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string>({
+    mutationFn: (teamId: string) => teamService.leaveTeam(teamId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [TEAMS_QUERY_KEY] });
+      queryClient.invalidateQueries({ queryKey: ['my-active-teams'] });
+      queryClient.invalidateQueries({ queryKey: ['my-ex-teams'] });
     },
   });
 };

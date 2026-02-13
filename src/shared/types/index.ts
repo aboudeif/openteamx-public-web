@@ -31,12 +31,9 @@ export interface CreateTeamDto {
   description?: string;
   type: TeamType;
   subjects: string[];
-  languages: laguage[];
   isPublic: boolean;
   isDiscoverable: boolean;
 }
-
-export type laguage = 'ENGLISH' | 'SPANISH' | 'FRENCH' | 'GERMAN' | 'CHINESE' | 'JAPANESE' | 'KOREAN' | 'Arabic' | 'OTHER';
 
 export interface TeamMember {
   id: string;

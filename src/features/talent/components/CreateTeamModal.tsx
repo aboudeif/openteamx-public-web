@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Modal, Form, Input, Select, Switch, Button, message } from 'antd';
-import { AxiosError } from 'axios';
 import { useCreateTeam } from '../../../hooks/useTeams';
-import { TeamType } from '../../../shared/types/index';
+import { TeamType, type CreateTeamDto } from '../../../shared/types/index';
 
 interface CreateTeamModalProps {
   open: boolean;
@@ -24,15 +23,24 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
   const { mutate: createTeam, isPending: isLoading } = useCreateTeam();
 
   const handleSubmit = (values: FormValues) => {
-    createTeam(values, {
+    const payload: CreateTeamDto = {
+      name: values.name.trim(),
+      description: values.description?.trim() || undefined,
+      type: values.type,
+      subjects: (values.subjects || []).map((s) => s.trim()).filter(Boolean),
+      isPublic: values.isPublic,
+      isDiscoverable: values.isPublic ? values.isDiscoverable : false,
+    };
+
+    createTeam(payload, {
       onSuccess: () => {
+        message.success('Team created successfully');
         form.resetFields();
+        setIsPublic(true);
         onClose();
       },
       onError: (error: Error) => {
-        // Error handling could be added here
-        const err = error as AxiosError<{ message: string }>;
-        const errorMessage = err.response?.data?.message || err.message || 'Failed to create team';
+        const errorMessage = error.message || 'Failed to create team';
         message.error(errorMessage);
         console.error('Failed to create team:', error);
       },
@@ -41,6 +49,7 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
 
   const handleCancel = () => {
     form.resetFields();
+    setIsPublic(true);
     onClose();
   };
 
@@ -109,6 +118,17 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
           name="subjects"
           label="Subjects"
           tooltip="Add subjects separated by comma or enter"
+          rules={[
+            {
+              validator: (_, value: string[] | undefined) => {
+                const normalized = (value || []).map((v) => v.trim()).filter(Boolean);
+                if (normalized.length >= 1) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Please add at least one subject'));
+              },
+            },
+          ]}
         >
           <Select
             mode="tags"
@@ -124,7 +144,14 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
           valuePropName="checked"
           tooltip="Anyone can find this team and request to join. Joining still requires approval"
         >
-          <Switch onChange={setIsPublic} />
+          <Switch
+            onChange={(checked) => {
+              setIsPublic(checked);
+              if (!checked) {
+                form.setFieldValue('isDiscoverable', false);
+              }
+            }}
+          />
         </Form.Item>
 
         <Form.Item
