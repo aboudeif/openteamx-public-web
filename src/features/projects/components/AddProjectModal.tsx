@@ -3,29 +3,57 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Calendar } from "lucide-react";
 import { toast } from "sonner";
+import { projectService } from "@/services";
 
 interface AddProjectModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  teamId: string;
+  onCreated?: () => Promise<void> | void;
 }
 
-export function AddProjectModal({ open, onOpenChange }: AddProjectModalProps) {
+export function AddProjectModal({ open, onOpenChange, teamId, onCreated }: AddProjectModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
 
   if (!open) return null;
 
-  const handleCreate = () => {
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setDueDate("");
+  };
+
+  const handleCreate = async () => {
     if (!title.trim()) {
       toast.error("Please enter a project title");
       return;
     }
-    toast.success("Project created successfully");
-    onOpenChange(false);
-    setTitle("");
-    setDescription("");
-    setDueDate("");
+
+    if (!teamId) {
+      toast.error("Team context is missing. Please reload and try again.");
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      await projectService.createProject(teamId, {
+        title: title.trim(),
+        description: description.trim(),
+        dueDate,
+      });
+      await onCreated?.();
+      toast.success("Project created successfully");
+      onOpenChange(false);
+      resetForm();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to create project";
+      toast.error(message);
+    } finally {
+      setIsCreating(false);
+    }
   };
 
   return (
@@ -76,8 +104,8 @@ export function AddProjectModal({ open, onOpenChange }: AddProjectModalProps) {
           <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className="flex-1" onClick={handleCreate}>
-            Create Project
+          <Button className="flex-1" onClick={handleCreate} disabled={isCreating}>
+            {isCreating ? "Creating..." : "Create Project"}
           </Button>
         </div>
       </div>

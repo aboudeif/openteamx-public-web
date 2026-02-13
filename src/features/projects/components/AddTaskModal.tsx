@@ -1,14 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Calendar, User } from "lucide-react";
+import { X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
 
 interface AddTaskModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  teamId: string;
   projectId?: string;
+  onCreated?: () => Promise<void> | void;
+  onUpdated?: () => Promise<void> | void;
+  taskToEdit?: {
+    id: string;
+    title?: string;
+    description?: string | null;
+    priority?: string;
+    dueDate?: string | null;
+    estimatedHours?: number | null;
+    currentAssigneeId?: string;
+  };
 }
 
 const priorities = [
@@ -17,14 +30,31 @@ const priorities = [
   { value: "high", label: "High", color: "bg-destructive/10 text-destructive" },
 ];
 
-const teamMembers = [
-  { id: "1", name: "Sarah Chen", initials: "SC" },
-  { id: "2", name: "Mike Johnson", initials: "MJ" },
-  { id: "3", name: "Alex Kim", initials: "AK" },
-  { id: "4", name: "Emily Davis", initials: "ED" },
-];
+type TeamMember = {
+  id: string;
+  name: string;
+  initials: string;
+};
 
-export function AddTaskModal({ open, onOpenChange, projectId }: AddTaskModalProps) {
+type RawTeamMember = {
+  id?: string;
+  userId?: string;
+  userName?: string;
+  user?: {
+    id?: string;
+    name?: string;
+  };
+};
+
+export function AddTaskModal({
+  open,
+  onOpenChange,
+  teamId,
+  projectId,
+  onCreated,
+  onUpdated,
+  taskToEdit,
+}: AddTaskModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
@@ -32,16 +62,13 @@ export function AddTaskModal({ open, onOpenChange, projectId }: AddTaskModalProp
   const [dueDate, setDueDate] = useState("");
   const [estimation, setEstimation] = useState("");
   const [userStory, setUserStory] = useState("");
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
 
-  if (!open) return null;
+  const isEditMode = Boolean(taskToEdit?.id);
 
-  const handleCreate = () => {
-    if (!title.trim()) {
-      toast.error("Please enter a task title");
-      return;
-    }
-    toast.success("Task created successfully");
-    onOpenChange(false);
+  const resetForm = () => {
     setTitle("");
     setDescription("");
     setPriority("medium");
@@ -51,11 +78,152 @@ export function AddTaskModal({ open, onOpenChange, projectId }: AddTaskModalProp
     setUserStory("");
   };
 
+  useEffect(() => {
+    if (!open || !teamId) {
+      return;
+    }
+
+    const loadMembers = async () => {
+      setIsLoadingMembers(true);
+      try {
+        const response = await api.get<unknown>(`/teams/${teamId}/members`);
+        const source = Array.isArray(response)
+          ? response
+          : response && typeof response === "object" && "members" in response
+            ? ((response as { members?: unknown }).members as unknown)
+            : [];
+
+        const members = Array.isArray(source)
+          ? (source as RawTeamMember[])
+              .map((member) => {
+                const id = member?.userId || member?.user?.id || member?.id;
+                const name = member?.userName || member?.user?.name || "Unknown member";
+                if (!id) {
+                  return null;
+                }
+                const initials = String(name)
+                  .split(" ")
+                  .filter(Boolean)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase())
+                  .join("") || "?";
+                return { id, name, initials };
+              })
+              .filter((member): member is TeamMember => Boolean(member))
+          : [];
+
+        setTeamMembers(members);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Failed to load team members";
+        toast.error(message);
+        setTeamMembers([]);
+      } finally {
+        setIsLoadingMembers(false);
+      }
+    };
+
+    void loadMembers();
+  }, [open, teamId]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    if (!taskToEdit) {
+      resetForm();
+      return;
+    }
+
+    setTitle(taskToEdit.title || "");
+    setDescription(taskToEdit.description || "");
+    setPriority((taskToEdit.priority || "MEDIUM").toLowerCase());
+    setAssignee(taskToEdit.currentAssigneeId || "");
+    setDueDate(
+      taskToEdit.dueDate
+        ? new Date(taskToEdit.dueDate).toISOString().slice(0, 10)
+        : "",
+    );
+    setEstimation(
+      Number.isFinite(Number(taskToEdit.estimatedHours))
+        ? String(taskToEdit.estimatedHours)
+        : "",
+    );
+    setUserStory("");
+  }, [open, taskToEdit]);
+
+  if (!open) return null;
+
+  const handleCreate = async () => {
+    if (!title.trim()) {
+      toast.error("Please enter a task title");
+      return;
+    }
+
+    if (!teamId) {
+      toast.error("Team context is missing. Please reload and try again.");
+      return;
+    }
+
+    const estimatedHours = Number.parseFloat(estimation);
+
+    try {
+      setIsCreating(true);
+      if (isEditMode && taskToEdit) {
+        await api.patch(`/teams/${teamId}/tasks/${taskToEdit.id}`, {
+          title: title.trim(),
+          description: [description.trim(), userStory.trim()].filter(Boolean).join("\n\n"),
+          priority: priority.toUpperCase(),
+          dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+          estimatedHours: Number.isFinite(estimatedHours) ? estimatedHours : undefined,
+        });
+
+        const currentAssigneeId = taskToEdit.currentAssigneeId || "";
+        if (currentAssigneeId && assignee !== currentAssigneeId) {
+          await api.delete(`/teams/${teamId}/tasks/${taskToEdit.id}/assign/${currentAssigneeId}`).catch(() => undefined);
+        }
+        if (assignee && assignee !== currentAssigneeId) {
+          await api.post(`/teams/${teamId}/tasks/${taskToEdit.id}/assign`, { userId: assignee });
+        }
+
+        await onUpdated?.();
+        toast.success("Task updated successfully");
+      } else {
+        const createdTask = await api.post<{ id: string }>(`/teams/${teamId}/tasks`, {
+          title: title.trim(),
+          description: [description.trim(), userStory.trim()].filter(Boolean).join("\n\n"),
+          priority: priority.toUpperCase(),
+          dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+          estimatedHours: Number.isFinite(estimatedHours) ? estimatedHours : undefined,
+          assigneeIds: assignee ? [assignee] : undefined,
+        });
+
+        if (projectId && createdTask?.id) {
+          await api.post(`/projects/${projectId}/tasks/${createdTask.id}`);
+        }
+
+        await onCreated?.();
+        toast.success("Task created successfully");
+      }
+      onOpenChange(false);
+      resetForm();
+    } catch (error: unknown) {
+      const message = error instanceof Error
+        ? error.message
+        : isEditMode
+          ? "Failed to update task"
+          : "Failed to create task";
+      toast.error(message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-card border border-border rounded-xl shadow-lg w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <h3 className="font-semibold text-lg">Add Task</h3>
+          <h3 className="font-semibold text-lg">{isEditMode ? "Edit Task" : "Add Task"}</h3>
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => onOpenChange(false)}>
             <X className="w-4 h-4" />
           </Button>
@@ -104,6 +272,10 @@ export function AddTaskModal({ open, onOpenChange, projectId }: AddTaskModalProp
           <div>
             <label className="text-sm font-medium text-foreground mb-2 block">Assign To</label>
             <div className="flex flex-wrap gap-2">
+              {isLoadingMembers && <p className="text-xs text-muted-foreground">Loading members...</p>}
+              {!isLoadingMembers && teamMembers.length === 0 && (
+                <p className="text-xs text-muted-foreground">No team members found.</p>
+              )}
               {teamMembers.map((member) => (
                 <button
                   key={member.id}
@@ -158,8 +330,8 @@ export function AddTaskModal({ open, onOpenChange, projectId }: AddTaskModalProp
           <Button variant="outline" className="flex-1" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button className="flex-1" onClick={handleCreate}>
-            Add Task
+          <Button className="flex-1" onClick={handleCreate} disabled={isCreating}>
+            {isCreating ? (isEditMode ? "Saving..." : "Creating...") : (isEditMode ? "Save Changes" : "Add Task")}
           </Button>
         </div>
       </div>

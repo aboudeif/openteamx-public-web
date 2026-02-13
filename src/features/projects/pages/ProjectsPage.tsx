@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,7 @@ import { FilterModal } from "@/features/projects/components/FilterModal";
 import { projectService } from "@/services";
 import { Project, Task } from "@/shared/types";
 import { TaskStatus, TaskPriority, ProjectStatus } from "@/shared/enums";
+import { toast } from "sonner";
 
 const statusConfig = {
   [TaskStatus.ToDo]: { label: "To Do", icon: Circle, color: "text-muted-foreground" },
@@ -150,17 +151,23 @@ export default function TeamProjects() {
   const [showFilter, setShowFilter] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchProjects = useCallback(async () => {
     if (!teamId) {
       return;
     }
 
-    const fetchProjects = async () => {
+    try {
       const data = await projectService.getProjects(teamId);
       setProjectList(data);
-    };
-    fetchProjects();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to load projects";
+      toast.error(message);
+    }
   }, [teamId]);
+
+  useEffect(() => {
+    fetchProjects();
+  }, [fetchProjects]);
 
   const toggleProject = (id: string) => {
     setExpandedProjects((prev) =>
@@ -215,8 +222,9 @@ export default function TeamProjects() {
         <div className="space-y-4">
           {projectList.map((project) => {
             const isExpanded = expandedProjects.includes(project.id);
-            const completedTasks = project.tasks.filter((t) => t.status === TaskStatus.Done).length;
-            const totalTasks = project.tasks.length;
+            const tasks = project.tasks || [];
+            const completedTasks = tasks.filter((t) => t.status === TaskStatus.Done).length;
+            const totalTasks = tasks.length;
 
             return (
               <Collapsible
@@ -235,7 +243,7 @@ export default function TeamProjects() {
 
                     <div className="flex-1 text-left">
                       <div className="flex items-center gap-3 mb-1">
-                        <h3 className="font-semibold text-foreground">{project.title}</h3>
+                        <h3 className="font-semibold text-foreground">{project.title || "Untitled project"}</h3>
                         <span className={cn(
                           "px-2 py-0.5 rounded-full text-[10px] font-medium uppercase",
                           project.status === ProjectStatus.Active ? "bg-success/10 text-success" :
@@ -245,7 +253,7 @@ export default function TeamProjects() {
                           {project.status.replace("_", " ")}
                         </span>
                       </div>
-                      <p className="text-sm text-muted-foreground line-clamp-1">{project.description}</p>
+                      <p className="text-sm text-muted-foreground line-clamp-1">{project.description || "No description"}</p>
                     </div>
 
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
@@ -255,10 +263,10 @@ export default function TeamProjects() {
                       </span>
                       <span className="inline-flex items-center gap-1">
                         <Calendar className="w-4 h-4" />
-                        {project.dueDate}
+                        {project.dueDate || "-"}
                       </span>
                       <div className="flex -space-x-2">
-                        {project.members.map((member, i) => (
+                        {(project.members || []).map((member, i) => (
                           <div
                             key={i}
                             className="w-7 h-7 rounded-full bg-primary/20 border-2 border-card flex items-center justify-center text-[10px] font-medium text-primary"
@@ -287,7 +295,7 @@ export default function TeamProjects() {
 
                     {/* Tasks */}
                     <div className="divide-y divide-border">
-                      {project.tasks.map((task) => (
+                      {(project.tasks || []).map((task) => (
                         <TaskRow key={task.id} task={task} teamId={teamId} onClickDetail={handleClickDetail} />
                       ))}
                     </div>
@@ -307,8 +315,19 @@ export default function TeamProjects() {
           })}
         </div>
 
-        <AddProjectModal open={showAddProject} onOpenChange={setShowAddProject} />
-        <AddTaskModal open={showAddTask} onOpenChange={setShowAddTask} projectId={selectedProjectId || undefined} />
+        <AddProjectModal
+          open={showAddProject}
+          onOpenChange={setShowAddProject}
+          teamId={teamId}
+          onCreated={fetchProjects}
+        />
+        <AddTaskModal
+          open={showAddTask}
+          onOpenChange={setShowAddTask}
+          teamId={teamId}
+          projectId={selectedProjectId || undefined}
+          onCreated={fetchProjects}
+        />
         <FilterModal open={showFilter} onOpenChange={setShowFilter} />
       </div>
     </MainLayout>
