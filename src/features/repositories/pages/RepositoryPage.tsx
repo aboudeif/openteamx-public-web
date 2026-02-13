@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useNavigate, useParams } from "react-router-dom";
 import { repositoryService } from "@/services";
 import {
@@ -15,7 +16,6 @@ import {
   GitCommit,
   Users,
   Search,
-  ChevronDown,
   Folder,
   File,
   History,
@@ -281,11 +281,22 @@ export default function TeamRepository() {
             <TabsContent value="code" className="m-0 p-6">
               {/* Branch Selector */}
               <div className="flex items-center gap-3 mb-4">
-                <Button variant="outline" size="sm" className="gap-2">
-                  <GitBranch className="w-4 h-4" />
-                  {selectedBranch}
-                  <ChevronDown className="w-3 h-3" />
-                </Button>
+                <Select value={selectedBranch} onValueChange={setSelectedBranch}>
+                  <SelectTrigger className="w-[220px] h-9">
+                    <div className="inline-flex items-center gap-2">
+                      <GitBranch className="w-4 h-4" />
+                      <SelectValue placeholder="Select branch" />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {branches.map((branch) => (
+                      <SelectItem key={branch.name} value={branch.name}>
+                        {branch.name}
+                        {branch.isDefault ? " (default)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <span className="text-sm text-muted-foreground">
                   {branches.length} branches
                 </span>
