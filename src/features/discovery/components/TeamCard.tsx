@@ -1,6 +1,7 @@
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Users, Calendar, Tag, MapPin } from "lucide-react";
+import { formatSince } from "@/lib/utils";
 
 export interface Team {
   id: string;
@@ -18,10 +19,21 @@ export interface Team {
 
 interface TeamCardProps {
   team: Team;
+  isMember?: boolean;
+  isRequested?: boolean;
+  isLoadingRequest?: boolean;
   onViewTeam: (id: string) => void;
+  onRequestJoin?: (id: string) => void;
 }
 
-export function TeamCard({ team, onViewTeam }: TeamCardProps) {
+export function TeamCard({
+  team,
+  isMember = false,
+  isRequested = false,
+  isLoadingRequest = false,
+  onViewTeam,
+  onRequestJoin,
+}: TeamCardProps) {
   const normalizedTags = Array.isArray(team.tags)
     ? team.tags
     : Array.isArray(team.subjects)
@@ -37,13 +49,18 @@ export function TeamCard({ team, onViewTeam }: TeamCardProps) {
 
   const normalizedDescription = typeof team.description === "string" ? team.description : "No description available.";
   const normalizedMemberCount = typeof team.size === "number" ? team.size : (team.memberCount ?? 0);
-  const normalizedCreatedAt =
-    typeof team.createdAt === "string"
-      ? team.createdAt
-      : team.createdAt instanceof Date
-        ? team.createdAt.toLocaleDateString()
-        : "Recently";
+  const normalizedCreatedAt = formatSince(team.createdAt);
   const normalizedLocation = team.location || "N/A";
+  const canRequest = !isMember && !isRequested;
+  const actionLabel = isMember ? "View Team" : isRequested ? "Request Sent" : "Request to Join";
+  const handleAction = () => {
+    if (isMember) {
+      onViewTeam(team.id);
+      return;
+    }
+
+    onRequestJoin?.(team.id);
+  };
 
   return (
     <div className="team-card animate-fade-in">
@@ -96,10 +113,11 @@ export function TeamCard({ team, onViewTeam }: TeamCardProps) {
         </span>
         <Button 
           size="sm" 
-          onClick={() => onViewTeam(team.id)}
+          onClick={handleAction}
+          disabled={!isMember && (!canRequest || isLoadingRequest)}
           className="h-8"
         >
-          {normalizedStatus === "hiring" ? "Request to Join" : "View Team"}
+          {actionLabel}
         </Button>
       </div>
     </div>

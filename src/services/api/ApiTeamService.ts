@@ -24,6 +24,19 @@ export class ApiTeamService implements ITeamService {
     return api.get<TeamsResponse>(`/teams?offset=${offset}&limit=${limit}`);
   }
 
+  async getDiscoverableTeams(page: number, limit: number, search?: string): Promise<unknown> {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit),
+    });
+
+    if (search?.trim()) {
+      params.set("search", search.trim());
+    }
+
+    return api.get<unknown>(`/public/teams?${params.toString()}`);
+  }
+
   async getTeamById(id: string): Promise<TeamDetail | null> {
     return api.get<TeamDetail>(`/teams/${id}`);
   }
@@ -80,6 +93,10 @@ export class ApiTeamService implements ITeamService {
 
   async updateMemberRole(teamId: string, memberId: string, role: string): Promise<void> {
     return api.patch(`/teams/${teamId}/members/${memberId}/role`, { role });
+  }
+
+  async transferOwnership(teamId: string, newLeaderId: string): Promise<void> {
+    return api.post(`/teams/${teamId}/transfer-ownership`, { newLeaderId });
   }
 
   async getJoinRequests(teamId: string): Promise<any[]> {

@@ -7,11 +7,16 @@ interface AuthGateProps {
 }
 
 const PUBLIC_WEB_HOME = import.meta.env.VITE_PUBLIC_WEB_URL || "http://localhost:3001";
+type AuthStatus = "unknown" | "authenticated_verified" | "authenticated_unverified" | "unauthenticated";
 
 export function AuthGate({ children }: AuthGateProps) {
   const [isChecking, setIsChecking] = useState(true);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authStatus, setAuthStatus] = useState<AuthStatus>("unknown");
   const loginUrl = useMemo(() => new URL("/", PUBLIC_WEB_HOME).toString(), []);
+  const activationUrl = useMemo(
+    () => new URL("/account/activation", PUBLIC_WEB_HOME).toString(),
+    [],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -22,16 +27,24 @@ export function AuthGate({ children }: AuthGateProps) {
 
     const checkAuth = async () => {
       try {
-        await authService.getCurrentUser();
+        const authState = await authService.getCurrentUser();
         if (!isMounted) return;
-        setIsAuthenticated(true);
+        const isVerified =
+          authState?.authState === "authenticated_verified" ||
+          authState?.user?.emailVerified === true;
+
+        setAuthStatus(isVerified ? "authenticated_verified" : "authenticated_unverified");
       } catch (error) {
         if (canRecoverWithRefresh(error)) {
           try {
             await authService.refreshToken();
-            await authService.getCurrentUser();
+            const authState = await authService.getCurrentUser();
             if (!isMounted) return;
-            setIsAuthenticated(true);
+            const isVerified =
+              authState?.authState === "authenticated_verified" ||
+              authState?.user?.emailVerified === true;
+
+            setAuthStatus(isVerified ? "authenticated_verified" : "authenticated_unverified");
             return;
           } catch {
             // Fall through to unauthenticated state.
@@ -39,10 +52,11 @@ export function AuthGate({ children }: AuthGateProps) {
         }
 
         if (!isMounted) return;
-        setIsAuthenticated(false);
+        setAuthStatus("unauthenticated");
       } finally {
-        if (!isMounted) return;
-        setIsChecking(false);
+        if (isMounted) {
+          setIsChecking(false);
+        }
       }
     };
 
@@ -54,16 +68,26 @@ export function AuthGate({ children }: AuthGateProps) {
   }, []);
 
   useEffect(() => {
-    if (!isChecking && !isAuthenticated) {
-      window.location.replace(loginUrl);
+    if (isChecking || authStatus === "unknown") {
+      return;
     }
-  }, [isChecking, isAuthenticated, loginUrl]);
+
+    if (authStatus === "unauthenticated") {
+      window.location.replace(loginUrl);
+      return;
+    }
+
+    if (authStatus === "authenticated_unverified") {
+      const currentUrl = encodeURIComponent(window.location.href);
+      window.location.replace(`${activationUrl}?returnUrl=${currentUrl}`);
+    }
+  }, [isChecking, authStatus, loginUrl, activationUrl]);
 
   if (isChecking) {
     return null;
   }
 
-  if (!isAuthenticated) {
+  if (authStatus !== "authenticated_verified") {
     return null;
   }
 

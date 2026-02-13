@@ -12,8 +12,10 @@ import { Button } from "@/components/ui/button";
 import { teamService } from "@/services";
 import { filterGroups } from "@/data/teams";
 import { Team } from "@/shared/types";
+import { toast } from "sonner";
 
 type TeamWithOptionalTags = Team & { tags?: string[] };
+const PAGE_SIZE = 6;
 
 function extractTeams(payload: unknown): Team[] {
   if (Array.isArray(payload)) {
@@ -35,6 +37,17 @@ function extractTeams(payload: unknown): Team[] {
   return [];
 }
 
+function extractHasNext(payload: unknown, fetchedCount: number, limit: number): boolean {
+  if (payload && typeof payload === "object") {
+    const candidate = payload as { meta?: { hasNext?: unknown } };
+    if (typeof candidate.meta?.hasNext === "boolean") {
+      return candidate.meta.hasNext;
+    }
+  }
+
+  return fetchedCount >= limit;
+}
+
 export default function DiscoverTeams() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
@@ -43,20 +56,27 @@ export default function DiscoverTeams() {
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
+  const [memberTeamIds, setMemberTeamIds] = useState<Set<string>>(new Set());
+  const [requestedTeamIds, setRequestedTeamIds] = useState<Set<string>>(new Set());
+  const [joiningTeamIds, setJoiningTeamIds] = useState<Set<string>>(new Set());
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
 
-  // Simulate initial load
+  // Initial load
   useEffect(() => {
     const fetchInitialTeams = async () => {
       try {
-        // Initial load simulated delay: 1000ms
-        const initialTeamsResponse = await teamService.getTeams(0, 6);
+        const [initialTeamsResponse, myTeamsResponse] = await Promise.all([
+          teamService.getDiscoverableTeams(1, PAGE_SIZE),
+          teamService.getMyActiveTeams(),
+        ]);
         const initialTeams = extractTeams(initialTeamsResponse);
+        const myTeams = Array.isArray(myTeamsResponse) ? myTeamsResponse : [];
+
         setTeams(initialTeams);
-        if (initialTeams.length < 6) {
-          setHasMore(false);
-        }
+        setMemberTeamIds(new Set(myTeams.map((team) => team.id)));
+        setHasMore(extractHasNext(initialTeamsResponse, initialTeams.length, PAGE_SIZE));
+        setPage(1);
       } catch (error) {
         console.error("Failed to load teams", error);
       } finally {
@@ -73,23 +93,22 @@ export default function DiscoverTeams() {
 
     setIsLoading(true);
     try {
-      const nextTeamsResponse = await teamService.getTeams(teams.length, 4);
+      const nextPage = page + 1;
+      const nextTeamsResponse = await teamService.getDiscoverableTeams(nextPage, PAGE_SIZE);
       const nextTeams = extractTeams(nextTeamsResponse);
       if (nextTeams.length === 0) {
         setHasMore(false);
       } else {
         setTeams((prev) => [...prev, ...nextTeams]);
-        if (nextTeams.length < 4) {
-          setHasMore(false);
-        }
+        setHasMore(extractHasNext(nextTeamsResponse, nextTeams.length, PAGE_SIZE));
+        setPage(nextPage);
       }
     } catch (error) {
       console.error("Failed to load more teams", error);
     } finally {
       setIsLoading(false);
-      setPage((p) => p + 1);
     }
-  }, [hasMore, isLoading, teams.length]);
+  }, [hasMore, isLoading, page]);
 
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
@@ -121,6 +140,47 @@ export default function DiscoverTeams() {
 
   const handleViewTeam = (teamId: string) => {
     navigate(`/${teamId}/team`);
+  };
+
+  const handleRequestToJoin = async (teamId: string) => {
+    if (joiningTeamIds.has(teamId) || requestedTeamIds.has(teamId)) {
+      return;
+    }
+
+    setJoiningTeamIds((prev) => new Set(prev).add(teamId));
+
+    try {
+      await teamService.requestToJoinTeam(
+        teamId,
+        "I would like to join this team.",
+        "Team Member",
+      );
+
+      const refreshedTeams = await teamService.getMyActiveTeams();
+      const isNowMember = refreshedTeams.some((team) => team.id === teamId);
+
+      if (isNowMember) {
+        setMemberTeamIds((prev) => new Set(prev).add(teamId));
+        setRequestedTeamIds((prev) => {
+          const next = new Set(prev);
+          next.delete(teamId);
+          return next;
+        });
+        toast.success("You joined this team.");
+      } else {
+        setRequestedTeamIds((prev) => new Set(prev).add(teamId));
+        toast.success("Join request sent.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to send join request.";
+      toast.error(message);
+    } finally {
+      setJoiningTeamIds((prev) => {
+        const next = new Set(prev);
+        next.delete(teamId);
+        return next;
+      });
+    }
   };
 
   // Filter teams based on search and filters
@@ -191,7 +251,15 @@ export default function DiscoverTeams() {
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredTeams.map((team) => (
-                <TeamCard key={team.id} team={team} onViewTeam={handleViewTeam} />
+                <TeamCard
+                  key={team.id}
+                  team={team}
+                  isMember={memberTeamIds.has(team.id)}
+                  isRequested={requestedTeamIds.has(team.id)}
+                  isLoadingRequest={joiningTeamIds.has(team.id)}
+                  onViewTeam={handleViewTeam}
+                  onRequestJoin={handleRequestToJoin}
+                />
               ))}
               {isLoading &&
                 Array.from({ length: 3 }).map((_, i) => (

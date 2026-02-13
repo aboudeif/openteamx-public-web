@@ -4,12 +4,22 @@ import { WorkspaceLayout } from "@/components/layout/WorkspaceLayout";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { CreateTeamModal } from "@/features/talent/components/CreateTeamModal";
 import { TeamSettingsModal } from "@/features/talent/components/TeamSettingsModal";
 import { useNavigate } from "react-router-dom";
 import { ApiTeamService } from "@/services/api/ApiTeamService";
+import { talentService } from "@/services";
 import { useLeaveTeam } from "@/hooks/useTeams";
 import type { Team } from "@/shared/types";
+import { formatSince } from "@/lib/utils";
 import {
   Users,
   Plus,
@@ -34,6 +44,27 @@ type ExTeam = {
   leftReason?: string;
 };
 
+type TeamHistoryItem = {
+  id?: string;
+  role?: string;
+  joinedAt?: string;
+  leftAt?: string;
+  leftReason?: string;
+  team?: {
+    id?: string;
+    name?: string;
+    slug?: string;
+    description?: string;
+    avatarUrl?: string;
+  };
+};
+
+type TeamMemberCandidate = {
+  userId: string;
+  userName: string;
+  role: string;
+};
+
 const teamService = new ApiTeamService();
 const TEAM_COLORS = [
   "from-primary to-primary/70",
@@ -53,16 +84,117 @@ const getInitials = (name: string) =>
 
 const mapRole = (role?: string) => (role === "LEADER" ? "Team Leader" : "Team Member");
 
+function extractHistoryItems(payload: unknown): TeamHistoryItem[] {
+  if (Array.isArray(payload)) {
+    return payload as TeamHistoryItem[];
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "data" in payload &&
+    Array.isArray((payload as { data?: unknown }).data)
+  ) {
+    return (payload as { data: TeamHistoryItem[] }).data;
+  }
+
+  return [];
+}
+
+function mapHistoryToExTeams(payload: unknown, activeTeamIds: Set<string>): ExTeam[] {
+  const historyItems = extractHistoryItems(payload);
+  const latestLeftByTeam = new Map<string, ExTeam>();
+
+  for (const item of historyItems) {
+    if (!item?.leftAt || !item?.team?.id) {
+      continue;
+    }
+
+    const existing = latestLeftByTeam.get(item.team.id);
+    const currentLeftAt = new Date(item.leftAt).getTime();
+    const existingLeftAt = existing?.leftAt ? new Date(existing.leftAt).getTime() : -1;
+
+    if (!existing || currentLeftAt > existingLeftAt) {
+      latestLeftByTeam.set(item.team.id, {
+        id: item.team.id,
+        name: item.team.name || "Team",
+        slug: item.team.slug || item.team.id,
+        description: item.team.description,
+        avatarUrl: item.team.avatarUrl,
+        role: item.role || "MEMBER",
+        leftAt: item.leftAt,
+        leftReason: item.leftReason,
+      });
+    }
+  }
+
+  const leftTeams = Array.from(latestLeftByTeam.values());
+  if (leftTeams.length > 0) {
+    return leftTeams;
+  }
+
+  // Compatibility fallback: if no explicit left records exist, use non-active history teams.
+  const latestHistoryByTeam = new Map<string, ExTeam>();
+  for (const item of historyItems) {
+    const teamId = item?.team?.id;
+    if (!teamId || activeTeamIds.has(teamId)) {
+      continue;
+    }
+
+    const timestamp = item.leftAt || item.joinedAt;
+    const existing = latestHistoryByTeam.get(teamId);
+    const currentTime = timestamp ? new Date(timestamp).getTime() : -1;
+    const existingTime = existing?.leftAt ? new Date(existing.leftAt).getTime() : -1;
+
+    if (!existing || currentTime > existingTime) {
+      latestHistoryByTeam.set(teamId, {
+        id: teamId,
+        name: item.team?.name || "Team",
+        slug: item.team?.slug || teamId,
+        description: item.team?.description,
+        avatarUrl: item.team?.avatarUrl,
+        role: item.role || "MEMBER",
+        leftAt: timestamp,
+        leftReason: item.leftReason,
+      });
+    }
+  }
+
+  return Array.from(latestHistoryByTeam.values());
+}
+
+function extractTeamMembers(payload: unknown): TeamMemberCandidate[] {
+  if (Array.isArray(payload)) {
+    return payload as TeamMemberCandidate[];
+  }
+
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "members" in payload &&
+    Array.isArray((payload as { members?: unknown }).members)
+  ) {
+    return (payload as { members: TeamMemberCandidate[] }).members;
+  }
+
+  return [];
+}
+
 export default function MyTeams() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [isTransferingLeadership, setIsTransferingLeadership] = useState(false);
+  const [transferCandidates, setTransferCandidates] = useState<TeamMemberCandidate[]>([]);
+  const [selectedNewLeaderId, setSelectedNewLeaderId] = useState("");
+  const [pendingLeaveTeam, setPendingLeaveTeam] = useState<{ id: string; name: string } | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<{
     id: string;
     name: string;
     description?: string;
   } | null>(null);
   const navigate = useNavigate();
-  const { mutate: leaveTeam, isPending: leavingTeam } = useLeaveTeam();
+  const { mutateAsync: leaveTeamAsync, isPending: leavingTeam } = useLeaveTeam();
 
   const {
     data: activeTeams = [],
@@ -73,13 +205,40 @@ export default function MyTeams() {
     queryFn: () => teamService.getMyActiveTeams(),
   });
 
-  const { data: exTeams = [], isLoading: exTeamsLoading } = useQuery<ExTeam[]>({
+  const activeTeamIds = useMemo(
+    () => new Set((Array.isArray(activeTeams) ? activeTeams : []).map((team) => team.id)),
+    [activeTeams],
+  );
+
+  const {
+    data: exTeams = [],
+    isLoading: exTeamsLoading,
+    isError: exTeamsError,
+  } = useQuery<ExTeam[]>({
     queryKey: ["my-ex-teams"],
-    queryFn: () => teamService.getExTeams() as Promise<ExTeam[]>,
+    queryFn: async () => {
+      try {
+        const response = (await teamService.getExTeams()) as ExTeam[];
+        if (Array.isArray(response) && response.length > 0) {
+          return response;
+        }
+      } catch {
+        // Fallback to talent history endpoint below.
+      }
+
+      const historyResponse = await talentService.getTeamHistory();
+      return mapHistoryToExTeams(historyResponse, activeTeamIds);
+    },
   });
 
   const normalizedActiveTeams = Array.isArray(activeTeams) ? activeTeams : [];
-  const normalizedExTeams = Array.isArray(exTeams) ? exTeams : [];
+  const normalizedExTeams = useMemo(
+    () =>
+      (Array.isArray(exTeams) ? exTeams : []).filter(
+        (team) => team?.id && !activeTeamIds.has(team.id),
+      ),
+    [exTeams, activeTeamIds],
+  );
 
   const decoratedTeams = useMemo(
     () =>
@@ -104,21 +263,84 @@ export default function MyTeams() {
     setShowSettingsModal(true);
   };
 
-  const handleLeaveTeam = (e: React.MouseEvent, team: { id: string; name: string }) => {
+  const handleLeaveTeam = async (
+    e: React.MouseEvent,
+    team: { id: string; name: string; currentUserRole?: string; memberCount?: number },
+  ) => {
     e.stopPropagation();
+
+    if (team.currentUserRole === "LEADER") {
+      if ((team.memberCount ?? 0) <= 1) {
+        if (!window.confirm(`Leave and archive team "${team.name}"?`)) {
+          return;
+        }
+
+        try {
+          await leaveTeamAsync(team.id);
+          toast.success(`Team "${team.name}" has been archived and you left successfully.`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to leave team";
+          toast.error(message);
+        }
+        return;
+      }
+
+      try {
+        const membersResponse = await teamService.getTeamMembers(team.id);
+        const candidates = extractTeamMembers(membersResponse).filter(
+          (member) => member.role !== "LEADER",
+        );
+
+        if (!candidates.length) {
+          toast.error("No eligible member available to transfer leadership.");
+          return;
+        }
+
+        setTransferCandidates(candidates);
+        setSelectedNewLeaderId(candidates[0].userId);
+        setPendingLeaveTeam({ id: team.id, name: team.name });
+        setShowTransferModal(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load team members";
+        toast.error(message);
+      }
+      return;
+    }
 
     if (!window.confirm(`Leave team "${team.name}"?`)) {
       return;
     }
 
-    leaveTeam(team.id, {
-      onSuccess: () => {
-        toast.success(`You left ${team.name}`);
-      },
-      onError: (error: Error) => {
-        toast.error(error.message || "Failed to leave team");
-      },
-    });
+    try {
+      await leaveTeamAsync(team.id);
+      toast.success(`You left ${team.name}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to leave team";
+      toast.error(message);
+    }
+  };
+
+  const handleTransferLeadershipAndLeave = async () => {
+    if (!pendingLeaveTeam || !selectedNewLeaderId) {
+      toast.error("Select a new team leader first.");
+      return;
+    }
+
+    setIsTransferingLeadership(true);
+    try {
+      await teamService.transferOwnership(pendingLeaveTeam.id, selectedNewLeaderId);
+      await leaveTeamAsync(pendingLeaveTeam.id);
+      toast.success(`Leadership transferred and you left ${pendingLeaveTeam.name}.`);
+      setShowTransferModal(false);
+      setPendingLeaveTeam(null);
+      setTransferCandidates([]);
+      setSelectedNewLeaderId("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to transfer leadership";
+      toast.error(message);
+    } finally {
+      setIsTransferingLeadership(false);
+    }
   };
 
   return (
@@ -177,10 +399,18 @@ export default function MyTeams() {
                       <Settings className="w-4 h-4 text-muted-foreground" />
                     </button>
                     <button
-                      onClick={(e) => handleLeaveTeam(e, { id: team.id, name: team.name })}
+                      onClick={(e) =>
+                        handleLeaveTeam(e, {
+                          id: team.id,
+                          name: team.name,
+                          currentUserRole: team.currentUserRole,
+                          memberCount: team.memberCount,
+                        })
+                      }
                       className="absolute top-3 right-11 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-destructive/10 transition-all"
                       aria-label={`Leave ${team.name}`}
-                      disabled={leavingTeam}
+                      disabled={leavingTeam || isTransferingLeadership}
+                      title="Leave team"
                     >
                       <LogOut className="w-4 h-4 text-destructive" />
                     </button>
@@ -247,7 +477,13 @@ export default function MyTeams() {
               </div>
             ) : null}
 
-            {!exTeamsLoading ? (
+            {exTeamsError ? (
+              <div className="rounded-lg border border-destructive/20 bg-destructive/5 text-destructive px-4 py-3 text-sm">
+                Failed to load previous teams from API.
+              </div>
+            ) : null}
+
+            {!exTeamsLoading && !exTeamsError ? (
               <div className="space-y-3">
                 {normalizedExTeams.map((team, index) => (
                   <div
@@ -271,8 +507,7 @@ export default function MyTeams() {
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-4 h-4" />
                         <span>
-                          Left:{" "}
-                          {team.leftAt ? new Date(team.leftAt).toLocaleDateString() : "Unknown"}
+                          Left {formatSince(team.leftAt)}
                         </span>
                       </div>
                       {team.leftReason ? (
@@ -303,6 +538,59 @@ export default function MyTeams() {
           team={selectedTeam}
         />
       ) : null}
+
+      <Dialog
+        open={showTransferModal}
+        onOpenChange={(open) => {
+          setShowTransferModal(open);
+          if (!open) {
+            setPendingLeaveTeam(null);
+            setTransferCandidates([]);
+            setSelectedNewLeaderId("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer Leadership</DialogTitle>
+            <DialogDescription>
+              Select a new leader for {pendingLeaveTeam?.name}. You can leave only after ownership is transferred.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <label htmlFor="new-leader" className="text-sm font-medium text-foreground">
+              New team leader
+            </label>
+            <select
+              id="new-leader"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              value={selectedNewLeaderId}
+              onChange={(e) => setSelectedNewLeaderId(e.target.value)}
+              disabled={isTransferingLeadership}
+            >
+              {transferCandidates.map((candidate) => (
+                <option key={candidate.userId} value={candidate.userId}>
+                  {candidate.userName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowTransferModal(false)}
+              disabled={isTransferingLeadership}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleTransferLeadershipAndLeave} disabled={isTransferingLeadership}>
+              {isTransferingLeadership ? "Transferring..." : "Transfer and Leave"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </WorkspaceLayout>
   );
 }

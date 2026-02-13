@@ -37,8 +37,13 @@ export function CalendarWidget() {
   const navigate = useNavigate();
   const { teamId = "" } = useParams();
   const now = new Date();
-  const rangeStart = now.toISOString();
-  const rangeEnd = new Date(now.getTime() + 1000 * 60 * 60 * 24 * 14).toISOString();
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const current = new Date();
+    return {
+      rangeStart: current.toISOString(),
+      rangeEnd: new Date(current.getTime() + 1000 * 60 * 60 * 24 * 14).toISOString(),
+    };
+  }, []);
 
   const { data: rawEvents = [], isLoading } = useQuery<CalendarEventItem[]>({
     queryKey: ["team-calendar-widget", teamId, rangeStart, rangeEnd],
@@ -49,6 +54,7 @@ export function CalendarWidget() {
       return extractCalendarEvents(response);
     },
     enabled: Boolean(teamId),
+    retry: false,
   });
 
   const events = useMemo(

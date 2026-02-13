@@ -18,6 +18,7 @@ import { useTeamDetails } from "@/hooks/useTeams";
 import { ApiTeamService } from "@/services/api/ApiTeamService";
 import type { Team } from "@/shared/types";
 import { toast } from "sonner";
+import { formatSince } from "@/lib/utils";
 
 const getInitials = (name: string) =>
   name
@@ -84,10 +85,7 @@ export default function TeamHome() {
   const teamInitials = getInitials(teamName);
   const subjects = useMemo(() => (Array.isArray(team?.subjects) ? team.subjects : []), [team?.subjects]);
 
-  const createdAt =
-    team?.createdAt && !Number.isNaN(new Date(team.createdAt as unknown as string).getTime())
-      ? new Date(team.createdAt as unknown as string).toLocaleDateString()
-      : "Unknown";
+  const createdAt = formatSince(team?.createdAt as string | Date | undefined);
 
   if (!teamId || isError) {
     return null;
