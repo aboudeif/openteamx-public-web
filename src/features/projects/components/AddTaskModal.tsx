@@ -144,11 +144,7 @@ export function AddTaskModal({
         ? new Date(taskToEdit.dueDate).toISOString().slice(0, 10)
         : "",
     );
-    setEstimation(
-      Number.isFinite(Number(taskToEdit.estimatedHours))
-        ? String(taskToEdit.estimatedHours)
-        : "",
-    );
+    setEstimation("");
     setUserStory("");
   }, [open, taskToEdit]);
 
@@ -172,19 +168,10 @@ export function AddTaskModal({
       if (isEditMode && taskToEdit) {
         await api.patch(`/teams/${teamId}/tasks/${taskToEdit.id}`, {
           title: title.trim(),
-          description: [description.trim(), userStory.trim()].filter(Boolean).join("\n\n"),
+          description: description.trim(),
           priority: priority.toUpperCase(),
           dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
-          estimatedHours: Number.isFinite(estimatedHours) ? estimatedHours : undefined,
         });
-
-        const currentAssigneeId = taskToEdit.currentAssigneeId || "";
-        if (currentAssigneeId && assignee !== currentAssigneeId) {
-          await api.delete(`/teams/${teamId}/tasks/${taskToEdit.id}/assign/${currentAssigneeId}`).catch(() => undefined);
-        }
-        if (assignee && assignee !== currentAssigneeId) {
-          await api.post(`/teams/${teamId}/tasks/${taskToEdit.id}/assign`, { userId: assignee });
-        }
 
         await onUpdated?.();
         toast.success("Task updated successfully");
@@ -269,32 +256,34 @@ export function AddTaskModal({
             </div>
           </div>
 
-          <div>
-            <label className="text-sm font-medium text-foreground mb-2 block">Assign To</label>
-            <div className="flex flex-wrap gap-2">
-              {isLoadingMembers && <p className="text-xs text-muted-foreground">Loading members...</p>}
-              {!isLoadingMembers && teamMembers.length === 0 && (
-                <p className="text-xs text-muted-foreground">No team members found.</p>
-              )}
-              {teamMembers.map((member) => (
-                <button
-                  key={member.id}
-                  onClick={() => setAssignee(member.id)}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all",
-                    assignee === member.id
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  )}
-                >
-                  <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium">
-                    {member.initials}
-                  </div>
-                  {member.name}
-                </button>
-              ))}
+          {!isEditMode && (
+            <div>
+              <label className="text-sm font-medium text-foreground mb-2 block">Assign To</label>
+              <div className="flex flex-wrap gap-2">
+                {isLoadingMembers && <p className="text-xs text-muted-foreground">Loading members...</p>}
+                {!isLoadingMembers && teamMembers.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No team members found.</p>
+                )}
+                {teamMembers.map((member) => (
+                  <button
+                    key={member.id}
+                    onClick={() => setAssignee(member.id)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-all",
+                      assignee === member.id
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    )}
+                  >
+                    <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium">
+                      {member.initials}
+                    </div>
+                    {member.name}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div>
@@ -305,25 +294,29 @@ export function AddTaskModal({
                 onChange={(e) => setDueDate(e.target.value)}
               />
             </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-1 block">Estimation</label>
-              <Input
-                value={estimation}
-                onChange={(e) => setEstimation(e.target.value)}
-                placeholder="e.g., 2 days"
-              />
-            </div>
+            {!isEditMode && (
+              <div>
+                <label className="text-sm font-medium text-foreground mb-1 block">Estimation</label>
+                <Input
+                  value={estimation}
+                  onChange={(e) => setEstimation(e.target.value)}
+                  placeholder="e.g., 2 days"
+                />
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="text-sm font-medium text-foreground mb-1 block">User Story</label>
-            <textarea
-              value={userStory}
-              onChange={(e) => setUserStory(e.target.value)}
-              placeholder="As a [user], I want [goal] so that [benefit]..."
-              className="w-full h-16 px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-            />
-          </div>
+          {!isEditMode && (
+            <div>
+              <label className="text-sm font-medium text-foreground mb-1 block">User Story</label>
+              <textarea
+                value={userStory}
+                onChange={(e) => setUserStory(e.target.value)}
+                placeholder="As a [user], I want [goal] so that [benefit]..."
+                className="w-full h-16 px-3 py-2 rounded-lg border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+          )}
         </div>
 
         <div className="p-4 border-t border-border flex gap-2">

@@ -157,6 +157,8 @@ export default function TaskDetail() {
   const [showEditTaskModal, setShowEditTaskModal] = useState(false);
   const [quickPanel, setQuickPanel] = useState<null | "status" | "assign" | "delete">(null);
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [isEditingStory, setIsEditingStory] = useState(false);
+  const [storyDraft, setStoryDraft] = useState("");
 
   // Estimation state
   const [estimations, setEstimations] = useState<EstimationPeriod[]>([]);
@@ -224,6 +226,10 @@ export default function TaskDetail() {
   }, [loadTaskDetails]);
 
   useEffect(() => {
+    setStoryDraft(task?.description || "");
+  }, [task?.description]);
+
+  useEffect(() => {
     if (!teamId) return;
     const loadMembers = async () => {
       try {
@@ -287,6 +293,24 @@ export default function TaskDetail() {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Failed to add comment";
       toast.error(message);
+    }
+  };
+
+  const saveUserStory = async () => {
+    if (!teamId || !taskId) return;
+    try {
+      setIsActionLoading(true);
+      await api.patch(`/teams/${teamId}/tasks/${taskId}`, {
+        description: storyDraft.trim(),
+      });
+      toast.success("User Story updated");
+      setIsEditingStory(false);
+      await loadTaskDetails();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update User Story";
+      toast.error(message);
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
@@ -601,11 +625,46 @@ export default function TaskDetail() {
             <div className="widget-card">
               {activeTab === "story" && (
                 <div>
-                  <h3 className="font-semibold mb-3 flex items-center gap-2">
-                    <FileText className="w-4 h-4 text-primary" />
-                    User Story
-                  </h3>
-                  <p className="text-muted-foreground bg-muted/30 p-4 rounded-lg italic">{description}</p>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-primary" />
+                      User Story
+                    </h3>
+                    {!isEditingStory ? (
+                      <Button variant="outline" size="sm" onClick={() => setIsEditingStory(true)}>
+                        <Pencil className="w-4 h-4 mr-1" />
+                        Edit
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setStoryDraft(task?.description || "");
+                            setIsEditingStory(false);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={saveUserStory} disabled={isActionLoading}>
+                          {isActionLoading ? "Saving..." : "Save"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                  {isEditingStory ? (
+                    <textarea
+                      value={storyDraft}
+                      onChange={(e) => setStoryDraft(e.target.value)}
+                      placeholder="Write user story..."
+                      className="w-full min-h-[140px] rounded-lg border border-input bg-background p-4 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  ) : (
+                    <p className="text-muted-foreground bg-muted/30 p-4 rounded-lg italic whitespace-pre-line">
+                      {description || "No user story yet."}
+                    </p>
+                  )}
                 </div>
               )}
 
