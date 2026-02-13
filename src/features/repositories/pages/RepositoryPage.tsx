@@ -11,6 +11,7 @@ import { repositoryService } from "@/services";
 import {
   ArrowLeft,
   GitBranch,
+  ChevronRight,
   Code,
   FileText,
   GitCommit,
@@ -63,6 +64,8 @@ type BlobResponse = {
   encoding?: string;
 };
 
+type PreviewType = "none" | "text" | "image" | "pdf" | "unsupported";
+
 function formatRelativeTime(iso?: string): string {
   if (!iso) return "recently";
   const d = new Date(iso);
@@ -87,16 +90,59 @@ function getInitials(name?: string): string {
     .join("") || "NA";
 }
 
+function getFileExtension(path: string): string {
+  const match = path.toLowerCase().match(/\.([a-z0-9]+)$/);
+  return match?.[1] || "";
+}
+
+function resolvePreviewType(path: string): PreviewType {
+  const ext = getFileExtension(path);
+  const imageExt = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"]);
+  const textExt = new Set([
+    "txt", "md", "json", "js", "jsx", "ts", "tsx", "css", "scss", "html", "yml", "yaml",
+    "xml", "sh", "env", "gitignore", "py", "go", "java", "c", "cpp", "h", "hpp", "rs"
+  ]);
+  if (ext === "pdf") return "pdf";
+  if (imageExt.has(ext)) return "image";
+  if (textExt.has(ext) || !ext) return "text";
+  return "unsupported";
+}
+
+function resolveImageMime(path: string): string {
+  const ext = getFileExtension(path);
+  switch (ext) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    case "svg":
+      return "image/svg+xml";
+    case "bmp":
+      return "image/bmp";
+    default:
+      return "image/png";
+  }
+}
+
 export default function TeamRepository() {
   const [activeTab, setActiveTab] = useState("code");
   const [searchQuery, setSearchQuery] = useState("");
   const [repo, setRepo] = useState<RepoDetails | null>(null);
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [selectedBranch, setSelectedBranch] = useState("main");
+  const [currentPath, setCurrentPath] = useState("");
   const [files, setFiles] = useState<TreeItem[]>([]);
   const [commits, setCommits] = useState<CommitItem[]>([]);
   const [contributors, setContributors] = useState<ContributorItem[]>([]);
-  const [readmeContent, setReadmeContent] = useState<string>("");
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [selectedFileContent, setSelectedFileContent] = useState<string>("");
+  const [selectedFileBase64, setSelectedFileBase64] = useState<string>("");
+  const [selectedFilePreviewType, setSelectedFilePreviewType] = useState<PreviewType>("none");
+  const [selectedFileName, setSelectedFileName] = useState<string>("");
+  const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -126,6 +172,12 @@ export default function TeamRepository() {
           resolvedBranches[0]?.name ||
           "main";
         setSelectedBranch(defaultBranch);
+        setCurrentPath("");
+        setSelectedFilePath(null);
+        setSelectedFileContent("");
+        setSelectedFileBase64("");
+        setSelectedFilePreviewType("none");
+        setSelectedFileName("");
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to load repository";
         setError(message);
@@ -142,46 +194,85 @@ export default function TeamRepository() {
       if (!teamId || !repositoryId || !selectedBranch) return;
       try {
         const [tree, commitList, contributorList] = await Promise.all([
-          repositoryService.getRepositoryTree(teamId, repositoryId, "", selectedBranch) as Promise<TreeResponse>,
+          repositoryService.getRepositoryTree(teamId, repositoryId, currentPath, selectedBranch) as Promise<TreeResponse>,
           repositoryService.getCommits(teamId, repositoryId, selectedBranch) as Promise<CommitItem[]>,
           repositoryService.getContributors(teamId, repositoryId) as Promise<ContributorItem[]>,
         ]);
 
         const treeItems = Array.isArray(tree?.items) ? tree.items : [];
-        setFiles(treeItems);
+        const ordered = [...treeItems].sort((a, b) => {
+          const aDir = a.type === "dir" ? 0 : 1;
+          const bDir = b.type === "dir" ? 0 : 1;
+          if (aDir !== bDir) return aDir - bDir;
+          return a.name.localeCompare(b.name);
+        });
+        setFiles(ordered);
         setCommits(Array.isArray(commitList) ? commitList : []);
         setContributors(Array.isArray(contributorList) ? contributorList : []);
-
-        const readmeItem = treeItems.find((item) => item.type === "file" && item.name.toLowerCase() === "readme.md");
-        if (readmeItem) {
-          try {
-            const blob = (await repositoryService.getFileContent(
-              teamId,
-              repositoryId,
-              readmeItem.path,
-              selectedBranch
-            )) as BlobResponse;
-            if (blob.content && blob.encoding === "base64") {
-              setReadmeContent(atob(blob.content.replace(/\n/g, "")));
-            } else {
-              setReadmeContent("");
-            }
-          } catch {
-            setReadmeContent("");
-          }
-        } else {
-          setReadmeContent("");
-        }
       } catch {
         setFiles([]);
         setCommits([]);
         setContributors([]);
-        setReadmeContent("");
       }
     };
 
     void loadRepositoryContent();
-  }, [repositoryId, selectedBranch, teamId]);
+  }, [currentPath, repositoryId, selectedBranch, teamId]);
+
+  const openFile = async (item: TreeItem) => {
+    if (!teamId || !repositoryId || !selectedBranch) return;
+    setIsLoadingFile(true);
+    const previewType = resolvePreviewType(item.path);
+    try {
+      const blob = (await repositoryService.getFileContent(
+        teamId,
+        repositoryId,
+        item.path,
+        selectedBranch
+      )) as BlobResponse;
+      if (blob.content && blob.encoding === "base64") {
+        const base64 = blob.content.replace(/\n/g, "");
+        setSelectedFileBase64(base64);
+        if (previewType === "text") {
+          setSelectedFileContent(atob(base64));
+        } else {
+          setSelectedFileContent("");
+        }
+      } else {
+        setSelectedFileContent("");
+        setSelectedFileBase64("");
+      }
+      setSelectedFilePath(item.path);
+      setSelectedFileName(item.name);
+      setSelectedFilePreviewType(previewType);
+    } catch {
+      setSelectedFileContent("");
+      setSelectedFileBase64("");
+      setSelectedFilePath(item.path);
+      setSelectedFileName(item.name);
+      setSelectedFilePreviewType("unsupported");
+    } finally {
+      setIsLoadingFile(false);
+    }
+  };
+
+  const handleOpenTreeItem = (item: TreeItem) => {
+    if (item.type === "dir") {
+      setCurrentPath(item.path);
+      setSelectedFilePath(null);
+      setSelectedFileName("");
+      setSelectedFileContent("");
+      setSelectedFileBase64("");
+      setSelectedFilePreviewType("none");
+      return;
+    }
+    void openFile(item);
+  };
+
+  const pathSegments = useMemo(
+    () => currentPath.split("/").filter(Boolean),
+    [currentPath]
+  );
 
   const filteredCommits = useMemo(
     () => commits.filter((commit) => commit.message.toLowerCase().includes(searchQuery.toLowerCase())),
@@ -302,6 +393,48 @@ export default function TeamRepository() {
                 </span>
               </div>
 
+              <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground flex-wrap">
+                <button
+                  className="underline underline-offset-2 hover:text-foreground"
+                  onClick={() => setCurrentPath("")}
+                >
+                  root
+                </button>
+                {pathSegments.map((segment, index) => {
+                  const segmentPath = pathSegments.slice(0, index + 1).join("/");
+                  return (
+                    <div key={segmentPath} className="inline-flex items-center gap-2">
+                      <ChevronRight className="w-3.5 h-3.5" />
+                      <button
+                        className="underline underline-offset-2 hover:text-foreground"
+                        onClick={() => setCurrentPath(segmentPath)}
+                      >
+                        {segment}
+                      </button>
+                    </div>
+                  );
+                })}
+                {currentPath ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => {
+                      const parts = currentPath.split("/").filter(Boolean);
+                      const parent = parts.slice(0, -1).join("/");
+                      setCurrentPath(parent);
+                      setSelectedFilePath(null);
+                      setSelectedFileName("");
+                      setSelectedFileContent("");
+                      setSelectedFileBase64("");
+                      setSelectedFilePreviewType("none");
+                    }}
+                  >
+                    Up
+                  </Button>
+                ) : null}
+              </div>
+
               {/* File List */}
               <div className="border border-border rounded-lg overflow-hidden">
                 <div className="bg-muted/50 px-4 py-3 border-b border-border">
@@ -313,11 +446,12 @@ export default function TeamRepository() {
                 <div className="divide-y divide-border">
                   {files.map((file) => (
                     <button
-                      key={file.name}
+                      key={file.path}
                       className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/50 transition-colors text-left focus:outline-none focus:bg-muted/50"
-                      aria-label={`Open ${file.name}`}
+                      aria-label={file.type === "dir" ? `Open folder ${file.name}` : `Open file ${file.name}`}
+                      onClick={() => handleOpenTreeItem(file)}
                     >
-                      {file.type === "folder" ? (
+                      {file.type === "dir" ? (
                         <Folder className="w-4 h-4 text-primary" />
                       ) : (
                         <File className="w-4 h-4 text-muted-foreground" />
@@ -334,15 +468,31 @@ export default function TeamRepository() {
               <div className="mt-6 border border-border rounded-lg overflow-hidden">
                 <div className="bg-muted/50 px-4 py-3 border-b border-border flex items-center gap-2">
                   <FileText className="w-4 h-4" />
-                  <span className="font-medium">README.md</span>
+                  <span className="font-medium">{selectedFileName || "File Preview"}</span>
                 </div>
                 <div className="p-6 prose prose-sm max-w-none dark:prose-invert">
-                  {readmeContent ? (
+                  {isLoadingFile ? (
+                    <p>Loading file...</p>
+                  ) : selectedFilePath && selectedFilePreviewType === "text" && selectedFileContent ? (
                     <pre className="bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
-                      <code>{readmeContent}</code>
+                      <code>{selectedFileContent}</code>
                     </pre>
+                  ) : selectedFilePath && selectedFilePreviewType === "image" && selectedFileBase64 ? (
+                    <img
+                      src={`data:${resolveImageMime(selectedFilePath)};base64,${selectedFileBase64}`}
+                      alt={selectedFileName || "Preview"}
+                      className="max-w-full h-auto rounded border border-border"
+                    />
+                  ) : selectedFilePath && selectedFilePreviewType === "pdf" && selectedFileBase64 ? (
+                    <iframe
+                      title={selectedFileName || "PDF Preview"}
+                      src={`data:application/pdf;base64,${selectedFileBase64}`}
+                      className="w-full min-h-[70vh] border border-border rounded"
+                    />
+                  ) : selectedFilePath && selectedFilePreviewType === "unsupported" ? (
+                    <p>Preview is not supported for this file type.</p>
                   ) : (
-                    <p>No README found in this branch.</p>
+                    <p>Select a file to preview its content.</p>
                   )}
                 </div>
               </div>
