@@ -31,11 +31,11 @@ export class MockChatService implements IChatService {
     return new Promise(resolve => setTimeout(() => resolve([...workspaces]), 100));
   }
 
-  async getMessages(workspaceId: string): Promise<ChatMessage[]> {
+  async getMessages(teamId: string, workspaceId: string): Promise<ChatMessage[]> {
     return new Promise(resolve => setTimeout(() => resolve([...initialMessages]), 100));
   }
 
-  async sendMessage(workspaceId: string, message: string): Promise<ChatMessage> {
+  async sendMessage(teamId: string, workspaceId: string, message: string): Promise<ChatMessage> {
     const newMessage: ChatMessage = {
       id: Date.now(),
       user: "John Doe",
@@ -49,6 +49,28 @@ export class MockChatService implements IChatService {
 
   async getTeamMembers(teamId: string): Promise<User[]> {
     return new Promise(resolve => setTimeout(() => resolve([...teamMembers]), 100));
+  }
+
+  async editMessage(teamId: string, messageId: string, content: string): Promise<ChatMessage> {
+    const existing = initialMessages.find((message) => String(message.id) === String(messageId));
+    return Promise.resolve({
+      ...(existing || initialMessages[0]),
+      id: messageId,
+      message: content,
+      isEdited: true,
+    });
+  }
+
+  async deleteMessage(teamId: string, messageId: string): Promise<void> {
+    return Promise.resolve();
+  }
+
+  async getOrCreateDirectChannel(teamId: string, peerUserId: string): Promise<{ id: string; name?: string; type?: string }> {
+    return Promise.resolve({ id: `dm-${peerUserId}`, name: "Direct Message", type: "DM" });
+  }
+
+  async getChannels(teamId: string, workspaceId: string): Promise<any[]> {
+    return Promise.resolve([]);
   }
 }
 

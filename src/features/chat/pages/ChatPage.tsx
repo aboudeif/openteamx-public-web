@@ -21,9 +21,8 @@ import {
   X,
   Pencil,
   Trash2,
-  Check,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatSince } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -36,7 +35,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -44,10 +42,9 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { chatService } from "@/services";
+import { authService, chatService, teamService } from "@/services";
 import { ChatMessage, ChatWorkspace, User } from "@/shared/types";
 
-// Types
 interface DriveFile {
   id: string;
   name: string;
@@ -67,8 +64,12 @@ export default function TeamChat() {
   const { teamId = "" } = useParams<{ teamId: string }>();
   const [selectedWorkspace, setSelectedWorkspace] = useState("general");
   const [workspaceList, setWorkspaceList] = useState<ChatWorkspace[]>([]);
+  const [directChannels, setDirectChannels] = useState<Array<{ id: string; name: string }>>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [teamMembers, setTeamMembers] = useState<User[]>([]);
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [isTeamLeader, setIsTeamLeader] = useState(false);
+  const [directTitle, setDirectTitle] = useState("");
   const [messageInput, setMessageInput] = useState("");
   const [workspacesExpanded, setWorkspacesExpanded] = useState(true);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
@@ -81,12 +82,26 @@ export default function TeamChat() {
     }
 
     const fetchWorkspacesAndMembers = async () => {
-      const [ws, members] = await Promise.all([
+      const [ws, members, channels, me, team] = await Promise.all([
         chatService.getWorkspaces(teamId),
         chatService.getTeamMembers(teamId),
+        chatService.getChannels(teamId, "all"),
+        authService.getCurrentUser(),
+        teamService.getTeamById(teamId),
       ]);
+
       setWorkspaceList(ws);
       setTeamMembers(members);
+      setCurrentUserId(me?.id || "");
+      setIsTeamLeader(team?.currentUserRole === "LEADER");
+
+      const dms = (Array.isArray(channels) ? channels : [])
+        .filter((channel) => channel?.type === "DM" && channel?.id)
+        .map((channel) => ({
+          id: String(channel.id),
+          name: String(channel.name || "Direct Message"),
+        }));
+      setDirectChannels(dms);
 
       if (ws.length > 0) {
         setSelectedWorkspace((current) =>
@@ -94,6 +109,7 @@ export default function TeamChat() {
         );
       }
     };
+
     void fetchWorkspacesAndMembers();
   }, [teamId]);
 
@@ -103,28 +119,25 @@ export default function TeamChat() {
     }
 
     const fetchMessages = async () => {
-      const msgs = await chatService.getMessages(selectedWorkspace);
+      const msgs = await chatService.getMessages(teamId, selectedWorkspace);
       setMessages(msgs);
     };
 
     void fetchMessages();
   }, [teamId, selectedWorkspace]);
 
-  // Modals
   const [showAddWorkspace, setShowAddWorkspace] = useState(false);
   const [showAddLink, setShowAddLink] = useState(false);
   const [showAttachFile, setShowAttachFile] = useState(false);
   const [showEditWorkspace, setShowEditWorkspace] = useState(false);
   const [showEditMessage, setShowEditMessage] = useState(false);
-  
-  // Edit states
+
   const [newWorkspaceName, setNewWorkspaceName] = useState("");
   const [editingWorkspace, setEditingWorkspace] = useState<ChatWorkspace | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkTitle, setLinkTitle] = useState("");
 
-  // Mention and emoji panels
   const [showMentionPanel, setShowMentionPanel] = useState(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
@@ -135,16 +148,22 @@ export default function TeamChat() {
   const projectWorkspaces = workspaceList.filter((w) => w.isProject);
 
   const filteredMessages = searchQuery
-    ? messages.filter(m => m.message.toLowerCase().includes(searchQuery.toLowerCase()))
+    ? messages.filter((m) => m.message.toLowerCase().includes(searchQuery.toLowerCase()))
     : messages;
 
   const filteredMembers = mentionFilter
-    ? teamMembers.filter(m => m.name.toLowerCase().includes(mentionFilter.toLowerCase()))
+    ? teamMembers.filter((m) => m.name.toLowerCase().includes(mentionFilter.toLowerCase()))
     : teamMembers;
+
+  const selectedWorkspaceName =
+    workspaceList.find((workspace) => workspace.id === selectedWorkspace)?.name ||
+    directChannels.find((channel) => channel.id === selectedWorkspace)?.name ||
+    directTitle ||
+    "Conversation";
 
   const handleSendMessage = async () => {
     if (!messageInput.trim()) return;
-    const newMessage = await chatService.sendMessage(selectedWorkspace, messageInput);
+    const newMessage = await chatService.sendMessage(teamId, selectedWorkspace, messageInput);
     setMessages([...messages, newMessage]);
     setMessageInput("");
   };
@@ -163,7 +182,7 @@ export default function TeamChat() {
 
   const handleEditWorkspace = () => {
     if (!editingWorkspace || !newWorkspaceName.trim()) return;
-    setWorkspaceList(prev => prev.map(w => 
+    setWorkspaceList((prev) => prev.map((w) =>
       w.id === editingWorkspace.id ? { ...w, name: newWorkspaceName } : w
     ));
     setShowEditWorkspace(false);
@@ -172,33 +191,48 @@ export default function TeamChat() {
   };
 
   const handleDeleteWorkspace = (id: string) => {
-    if (workspaceList.find(w => w.id === id)?.isDefault) return;
-    setWorkspaceList(prev => prev.filter(w => w.id !== id));
+    if (workspaceList.find((w) => w.id === id)?.isDefault) return;
+    setWorkspaceList((prev) => prev.filter((w) => w.id !== id));
     if (selectedWorkspace === id) setSelectedWorkspace("general");
   };
 
-  const handleEditMessage = () => {
+  const handleEditMessage = async () => {
     if (!editingMessage) return;
-    setMessages(prev => prev.map(m => 
-      m.id === editingMessage.id ? { ...editingMessage, isEdited: true } : m
+    const updated = await chatService.editMessage(teamId, String(editingMessage.id), editingMessage.message);
+    setMessages((prev) => prev.map((m) =>
+      m.id === editingMessage.id ? { ...m, ...updated, isEdited: true } : m
     ));
     setShowEditMessage(false);
     setEditingMessage(null);
   };
 
-  const handleDeleteMessage = (id: number | string) => {
-    setMessages(prev => prev.filter(m => m.id !== id));
+  const handleDeleteMessage = async (id: number | string) => {
+    await chatService.deleteMessage(teamId, String(id));
+    const refreshed = await chatService.getMessages(teamId, selectedWorkspace);
+    setMessages(refreshed);
+  };
+
+  const openDirectChat = async (member: User) => {
+    if (!teamId || !member.id || member.id === currentUserId) return;
+    const dm = await chatService.getOrCreateDirectChannel(teamId, member.id);
+    setDirectChannels((prev) =>
+      prev.some((channel) => channel.id === dm.id)
+        ? prev
+        : [...prev, { id: dm.id, name: member.name || dm.name || "Direct Message" }],
+    );
+    setDirectTitle(member.name || dm.name || "Direct Message");
+    setSelectedWorkspace(dm.id);
   };
 
   const insertMention = (name: string) => {
-    setMessageInput(prev => prev + `@${name.replace(/\s/g, "")} `);
+    setMessageInput((prev) => prev + `@${name.replace(/\s/g, "")} `);
     setShowMentionPanel(false);
     setMentionFilter("");
     inputRef.current?.focus();
   };
 
   const insertEmoji = (emoji: string) => {
-    setMessageInput(prev => prev + emoji);
+    setMessageInput((prev) => prev + emoji);
     setShowEmojiPanel(false);
     inputRef.current?.focus();
   };
@@ -206,22 +240,27 @@ export default function TeamChat() {
   const insertLink = () => {
     if (!linkUrl) return;
     const linkText = linkTitle || linkUrl;
-    setMessageInput(prev => prev + `[${linkText}](${linkUrl})`);
+    setMessageInput((prev) => prev + `[${linkText}](${linkUrl})`);
     setShowAddLink(false);
     setLinkUrl("");
     setLinkTitle("");
   };
 
   const attachFile = (file: DriveFile) => {
-    setMessageInput(prev => prev + `📎 ${file.name} `);
+    setMessageInput((prev) => prev + `📎 ${file.name} `);
     setShowAttachFile(false);
+  };
+
+  const formatDeletedAgo = (value?: string): string => {
+    if (!value) return "just now";
+    const since = formatSince(value).replace(/^since:\s*/i, "").trim();
+    return since === "unknown" ? "just now" : `${since} ago`;
   };
 
   return (
     <MainLayout>
-      <div className="flex h-screen">
-        {/* Workspaces Sidebar */}
-        <div className="w-60 border-r border-border bg-card flex flex-col">
+      <div className="flex h-full min-h-0 overflow-hidden">
+        <div className="w-60 border-r border-border bg-card flex flex-col min-h-0">
           <div className="p-4 border-b border-border">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -243,7 +282,6 @@ export default function TeamChat() {
           </div>
 
           <ScrollArea className="flex-1 p-2">
-            {/* Workspaces */}
             <div className="mb-4">
               <button
                 onClick={() => setWorkspacesExpanded(!workspacesExpanded)}
@@ -292,12 +330,18 @@ export default function TeamChat() {
                       )}
                     </div>
                   ))}
+                  <button
+                    onClick={() => setShowAddWorkspace(true)}
+                    className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add workspace
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* Projects */}
-            <div>
+            <div className="mb-4">
               <button
                 onClick={() => setProjectsExpanded(!projectsExpanded)}
                 className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider w-full hover:text-foreground"
@@ -343,28 +387,43 @@ export default function TeamChat() {
                       </DropdownMenu>
                     </div>
                   ))}
-                  <button
-                    onClick={() => setShowAddWorkspace(true)}
-                    className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add workspace
-                  </button>
                 </div>
               )}
+            </div>
+
+            <div>
+              <div className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                Direct Messages
+              </div>
+              <div className="mt-1 space-y-0.5">
+                {directChannels.map((channel) => (
+                  <button
+                    key={channel.id}
+                    onClick={() => {
+                      setDirectTitle(channel.name);
+                      setSelectedWorkspace(channel.id);
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm transition-colors",
+                      selectedWorkspace === channel.id
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-foreground hover:bg-muted"
+                    )}
+                  >
+                    <AtSign className="w-4 h-4 text-muted-foreground" />
+                    <span className="flex-1 text-left truncate">{channel.name}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           </ScrollArea>
         </div>
 
-        {/* Chat Area */}
-        <div className="flex-1 flex flex-col bg-background">
-          {/* Chat Header */}
+        <div className="flex-1 flex flex-col bg-background min-h-0">
           <div className="h-14 px-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Hash className="w-5 h-5 text-muted-foreground" />
-              <h2 className="font-semibold text-foreground">
-                {workspaceList.find((w) => w.id === selectedWorkspace)?.name}
-              </h2>
+              <h2 className="font-semibold text-foreground">{selectedWorkspaceName}</h2>
             </div>
             <div className="flex items-center gap-1">
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsSearching(!isSearching)}>
@@ -376,60 +435,74 @@ export default function TeamChat() {
             </div>
           </div>
 
-          {/* Messages */}
-          <ScrollArea className="flex-1 p-4">
+          <ScrollArea className="flex-1 min-h-0 p-4">
             <div className="space-y-4">
-              {filteredMessages.map((msg) => (
-                <div key={msg.id} className="chat-message group">
-                  <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium text-primary flex-shrink-0">
-                    {msg.avatar}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-foreground">{msg.user}</span>
-                      <span className="text-xs text-muted-foreground">{msg.time}</span>
-                      {msg.isEdited && <span className="text-xs text-muted-foreground">(edited)</span>}
-                    </div>
-                    <div className="text-sm text-foreground whitespace-pre-wrap">
-                      {msg.message.split(/(@\w+)/g).map((part, i) =>
-                        part.startsWith("@") ? (
-                          <span key={i} className="text-primary font-medium">{part}</span>
-                        ) : (
-                          <span key={i}>{part}</span>
-                        )
-                      )}
-                    </div>
-                    {msg.reactions.length > 0 && (
-                      <div className="flex items-center gap-1 mt-2">
-                        {msg.reactions.map((reaction, i) => (
-                          <button key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs hover:bg-muted/80">
-                            {reaction.emoji} {reaction.count}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
-                        <MoreHorizontal className="w-4 h-4" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => { setEditingMessage(msg); setShowEditMessage(true); }}>
-                        <Pencil className="w-4 h-4 mr-2" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDeleteMessage(msg.id)}>
-                        <Trash2 className="w-4 h-4 mr-2" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+              {filteredMessages.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                  No messages in this channel yet.
                 </div>
-              ))}
+              ) : (
+                filteredMessages.map((msg) => (
+                  msg.isDeleted ? (
+                    <div key={msg.id} className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+                      This message is deleted by {msg.deletedByName || msg.user} {formatDeletedAgo(msg.deletedAt)}
+                    </div>
+                  ) : (
+                    <div key={msg.id} className="chat-message group">
+                      <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium text-primary flex-shrink-0">
+                        {msg.avatar}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-semibold text-foreground">{msg.user}</span>
+                          <span className="text-xs text-muted-foreground">{msg.time}</span>
+                          {msg.isEdited && <span className="text-xs text-muted-foreground">(edited)</span>}
+                        </div>
+                        <div className="text-sm text-foreground whitespace-pre-wrap">
+                          {msg.message.split(/(@\w+)/g).map((part, i) =>
+                            part.startsWith("@") ? (
+                              <span key={i} className="text-primary font-medium">{part}</span>
+                            ) : (
+                              <span key={i}>{part}</span>
+                            )
+                          )}
+                        </div>
+                        {msg.reactions.length > 0 && (
+                          <div className="flex items-center gap-1 mt-2">
+                            {msg.reactions.map((reaction, i) => (
+                              <button key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-muted text-xs hover:bg-muted/80">
+                                {reaction.emoji} {reaction.count}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {(msg.authorId === currentUserId || isTeamLeader) ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            {msg.authorId === currentUserId ? (
+                              <DropdownMenuItem onClick={() => { setEditingMessage(msg); setShowEditMessage(true); }}>
+                                <Pencil className="w-4 h-4 mr-2" /> Edit
+                              </DropdownMenuItem>
+                            ) : null}
+                            <DropdownMenuItem className="text-destructive" onClick={() => void handleDeleteMessage(msg.id)}>
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
+                    </div>
+                  )
+                ))
+              )}
             </div>
           </ScrollArea>
 
-          {/* Message Input */}
           <div className="p-4 border-t border-border">
             <div className="bg-muted/50 rounded-xl border border-border focus-within:border-primary/50 transition-colors">
               <div className="p-3">
@@ -437,8 +510,8 @@ export default function TeamChat() {
                   ref={inputRef}
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
-                  placeholder={`Message #${workspaceList.find((w) => w.id === selectedWorkspace)?.name}...`}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleSendMessage(); } }}
+                  placeholder={`Message #${selectedWorkspaceName}...`}
                   className="w-full bg-transparent text-sm resize-none focus:outline-none min-h-[60px]"
                   rows={2}
                 />
@@ -496,7 +569,7 @@ export default function TeamChat() {
                   </Popover>
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowAttachFile(true)}><Paperclip className="w-4 h-4" /></Button>
                 </div>
-                <Button size="sm" disabled={!messageInput.trim()} onClick={handleSendMessage}>
+                <Button size="sm" disabled={!messageInput.trim()} onClick={() => void handleSendMessage()}>
                   <Send className="w-4 h-4" />
                 </Button>
               </div>
@@ -504,12 +577,16 @@ export default function TeamChat() {
           </div>
         </div>
 
-        {/* Members Sidebar */}
-        <div className="w-56 border-l border-border bg-card p-4">
+        <div className="w-56 border-l border-border bg-card p-4 min-h-0 overflow-auto">
           <h3 className="text-sm font-semibold text-foreground mb-3">Team Members</h3>
           <div className="space-y-2">
             {teamMembers.map((member) => (
-              <div key={member.name} className="flex items-center gap-2 py-1">
+              <button
+                key={member.name}
+                type="button"
+                onClick={() => void openDirectChat(member)}
+                className="flex items-center gap-2 py-1 w-full text-left hover:bg-muted/60 rounded-md px-1"
+              >
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">
                     {member.initials}
@@ -520,13 +597,12 @@ export default function TeamChat() {
                   )} />
                 </div>
                 <span className="text-sm text-foreground truncate">{member.name}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Add Workspace Modal */}
       <Dialog open={showAddWorkspace} onOpenChange={setShowAddWorkspace}>
         <DialogContent>
           <DialogHeader>
@@ -547,7 +623,6 @@ export default function TeamChat() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Workspace Modal */}
       <Dialog open={showEditWorkspace} onOpenChange={setShowEditWorkspace}>
         <DialogContent>
           <DialogHeader>
@@ -567,7 +642,6 @@ export default function TeamChat() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit Message Modal */}
       <Dialog open={showEditMessage} onOpenChange={setShowEditMessage}>
         <DialogContent>
           <DialogHeader>
@@ -582,12 +656,11 @@ export default function TeamChat() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowEditMessage(false)}>Cancel</Button>
-            <Button onClick={handleEditMessage}>Save</Button>
+            <Button onClick={() => void handleEditMessage()}>Save</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Add Link Panel */}
       <Dialog open={showAddLink} onOpenChange={setShowAddLink}>
         <DialogContent>
           <DialogHeader>
@@ -618,7 +691,6 @@ export default function TeamChat() {
         </DialogContent>
       </Dialog>
 
-      {/* Attach File Modal */}
       <Dialog open={showAttachFile} onOpenChange={setShowAttachFile}>
         <DialogContent>
           <DialogHeader>

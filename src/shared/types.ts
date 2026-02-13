@@ -47,12 +47,17 @@ export interface ChatReaction {
 
 export interface ChatMessage {
   id: number | string;
+  authorId?: string;
   user: string; // Display name or ID
   avatar: string; // Initials or URL
   message: string;
   time: string;
   reactions: ChatReaction[];
   isEdited?: boolean;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedByName?: string;
+  channelType?: string;
 }
 
 // --- Drive ---
