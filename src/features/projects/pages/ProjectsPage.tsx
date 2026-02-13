@@ -113,7 +113,7 @@ function TaskRow({
   return (
     <>
       <div
-        className="task-row group rounded-lg border border-transparent bg-background/70 hover:bg-accent/30 hover:border-border/70 transition-colors"
+        className="task-row group bg-transparent hover:bg-muted/40 transition-colors"
         style={{ paddingLeft: `${16 + level * 24}px` }}
         onClick={() => onClickDetail(task.id)}
       >
@@ -181,7 +181,7 @@ function TaskRow({
           {task.dueDate}
         </span>
 
-        <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-medium text-primary">
+        <div className="w-7 h-7 rounded-full bg-muted text-foreground/70 flex items-center justify-center text-[10px] font-medium">
           {task.assignee}
         </div>
 
@@ -573,7 +573,7 @@ export default function TeamProjects() {
 
   return (
     <MainLayout>
-      <div className="h-[calc(100vh-120px)] overflow-auto p-6 lg:p-8 max-w-7xl mx-auto bg-gradient-to-b from-background via-background to-muted/20">
+      <div className="h-[calc(100vh-120px)] overflow-auto p-6 lg:p-8 max-w-7xl mx-auto bg-background">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -596,7 +596,7 @@ export default function TeamProjects() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search tasks..."
-              className="pl-9 bg-background/80 border-border/70"
+              className="pl-9 bg-card border-border"
             />
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowFilter(true)}>
@@ -623,10 +623,10 @@ export default function TeamProjects() {
                 key={project.id}
                 open={isExpanded}
                 onOpenChange={() => toggleProject(project.id)}
-                className="project-accordion overflow-hidden rounded-xl border border-border/70 bg-card/90 shadow-sm"
+                className="project-accordion overflow-hidden rounded-xl border border-border bg-card shadow-card transition-all hover:shadow-md"
               >
                 <CollapsibleTrigger className="w-full">
-                  <div className="flex items-center gap-3 p-4 hover:bg-accent/30 transition-colors">
+                  <div className="flex items-center gap-3 p-4 hover:bg-muted/40 transition-colors">
                     {isExpanded ? (
                       <ChevronDown className="w-5 h-5 text-muted-foreground" />
                     ) : (
@@ -648,7 +648,7 @@ export default function TeamProjects() {
                       <p className="text-sm text-muted-foreground line-clamp-1">{project.description || "No description"}</p>
                     </div>
 
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-4 text-sm text-foreground/70">
                       <span className="inline-flex items-center gap-1">
                         <CheckCircle2 className="w-4 h-4" />
                         {completedTasks}/{totalTasks}
@@ -695,9 +695,9 @@ export default function TeamProjects() {
                 </CollapsibleTrigger>
 
                 <CollapsibleContent>
-                  <div className="border-t border-border/70 bg-background/40">
+                  <div className="border-t border-border bg-background">
                     {/* Task Header */}
-                    <div className="flex items-center gap-3 px-4 py-2 bg-muted/40 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-muted/50 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       <div className="w-5" />
                       <div className="w-4" />
                       <span className="flex-1">Task</span>
@@ -728,7 +728,7 @@ export default function TeamProjects() {
 
                     {/* Add Task */}
                     <button 
-                      className="flex items-center gap-2 w-full px-4 py-3 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+                      className="flex items-center gap-2 w-full px-4 py-3 text-sm text-muted-foreground border-t border-border hover:text-foreground hover:bg-muted/40 transition-colors"
                       onClick={() => handleAddTask(project.id)}
                     >
                       <Plus className="w-4 h-4" />
