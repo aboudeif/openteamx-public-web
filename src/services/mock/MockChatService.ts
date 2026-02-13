@@ -31,6 +31,26 @@ export class MockChatService implements IChatService {
     return new Promise(resolve => setTimeout(() => resolve([...workspaces]), 100));
   }
 
+  async createWorkspace(teamId: string, name: string, description: string): Promise<ChatWorkspace> {
+    return Promise.resolve({
+      id: name.toLowerCase().replace(/\s+/g, "-"),
+      name,
+      unread: 0,
+    });
+  }
+
+  async updateWorkspace(teamId: string, workspaceId: string, name: string, description: string): Promise<ChatWorkspace> {
+    return Promise.resolve({
+      id: workspaceId,
+      name,
+      unread: 0,
+    });
+  }
+
+  async deleteWorkspace(teamId: string, workspaceId: string): Promise<void> {
+    return Promise.resolve();
+  }
+
   async getMessages(teamId: string, workspaceId: string): Promise<ChatMessage[]> {
     return new Promise(resolve => setTimeout(() => resolve([...initialMessages]), 100));
   }

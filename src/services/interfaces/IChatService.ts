@@ -2,6 +2,9 @@ import { ChatMessage, ChatWorkspace, User } from "@/shared/types";
 
 export interface IChatService {
   getWorkspaces(teamId: string): Promise<ChatWorkspace[]>;
+  createWorkspace(teamId: string, name: string, description: string): Promise<ChatWorkspace>;
+  updateWorkspace(teamId: string, workspaceId: string, name: string, description: string): Promise<ChatWorkspace>;
+  deleteWorkspace(teamId: string, workspaceId: string): Promise<void>;
   getMessages(teamId: string, workspaceId: string): Promise<ChatMessage[]>;
   sendMessage(teamId: string, workspaceId: string, message: string): Promise<ChatMessage>;
   getTeamMembers(teamId: string): Promise<User[]>;

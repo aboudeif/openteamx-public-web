@@ -156,11 +156,11 @@ export class ApiChatService implements IChatService {
   }
 
   async createWorkspace(teamId: string, name: string, description: string): Promise<ChatWorkspace> {
-    return api.post<ChatWorkspace>(`/teams/${teamId}/chat/workspaces`, { name, description });
+    return api.post<ChatWorkspace>(`/teams/${teamId}/chat/workspaces`, { name });
   }
 
   async updateWorkspace(teamId: string, workspaceId: string, name: string, description: string): Promise<ChatWorkspace> {
-    return api.put<ChatWorkspace>(`/teams/${teamId}/chat/workspaces/${workspaceId}`, { name, description });
+    return api.put<ChatWorkspace>(`/teams/${teamId}/chat/workspaces/${workspaceId}`, { name });
   }
 
   async deleteWorkspace(teamId: string, workspaceId: string): Promise<void> {

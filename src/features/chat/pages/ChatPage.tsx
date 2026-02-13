@@ -169,31 +169,43 @@ export default function TeamChat() {
   };
 
   const handleAddWorkspace = () => {
-    if (!newWorkspaceName.trim()) return;
-    const newWs: ChatWorkspace = {
-      id: newWorkspaceName.toLowerCase().replace(/\s/g, "-"),
-      name: newWorkspaceName,
-      unread: 0,
-    };
-    setWorkspaceList([...workspaceList, newWs]);
-    setNewWorkspaceName("");
-    setShowAddWorkspace(false);
+    if (!newWorkspaceName.trim() || !teamId) return;
+    void (async () => {
+      await chatService.createWorkspace(teamId, newWorkspaceName.trim(), "");
+      const ws = await chatService.getWorkspaces(teamId);
+      setWorkspaceList(ws);
+      if (ws.length > 0) {
+        setSelectedWorkspace((current) =>
+          ws.some((workspace) => workspace.id === current) ? current : ws[0].id
+        );
+      }
+      setNewWorkspaceName("");
+      setShowAddWorkspace(false);
+    })();
   };
 
   const handleEditWorkspace = () => {
-    if (!editingWorkspace || !newWorkspaceName.trim()) return;
-    setWorkspaceList((prev) => prev.map((w) =>
-      w.id === editingWorkspace.id ? { ...w, name: newWorkspaceName } : w
-    ));
-    setShowEditWorkspace(false);
-    setEditingWorkspace(null);
-    setNewWorkspaceName("");
+    if (!editingWorkspace || !newWorkspaceName.trim() || !teamId) return;
+    void (async () => {
+      await chatService.updateWorkspace(teamId, editingWorkspace.id, newWorkspaceName.trim(), "");
+      const ws = await chatService.getWorkspaces(teamId);
+      setWorkspaceList(ws);
+      setShowEditWorkspace(false);
+      setEditingWorkspace(null);
+      setNewWorkspaceName("");
+    })();
   };
 
   const handleDeleteWorkspace = (id: string) => {
-    if (workspaceList.find((w) => w.id === id)?.isDefault) return;
-    setWorkspaceList((prev) => prev.filter((w) => w.id !== id));
-    if (selectedWorkspace === id) setSelectedWorkspace("general");
+    if (!teamId || workspaceList.find((w) => w.id === id)?.isDefault) return;
+    void (async () => {
+      await chatService.deleteWorkspace(teamId, id);
+      const ws = await chatService.getWorkspaces(teamId);
+      setWorkspaceList(ws);
+      if (selectedWorkspace === id) {
+        setSelectedWorkspace(ws[0]?.id || "");
+      }
+    })();
   };
 
   const handleEditMessage = async () => {
