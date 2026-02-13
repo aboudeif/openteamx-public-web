@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { MouseEvent, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -113,8 +113,9 @@ export default function TextEditor() {
     driveService
       .getDocumentContent(teamId, fileId)
       .then((document) => {
-        const loadedTitle = document?.title?.trim() || "Untitled Document";
-        const loadedContent = typeof document?.content === "string" ? document.content : "";
+        const payload = document as { title?: string; name?: string; content?: string };
+        const loadedTitle = (payload.title || payload.name || "").trim() || "Untitled Document";
+        const loadedContent = typeof payload.content === "string" ? payload.content : "";
         setTitle(loadedTitle);
         setPages(deserializePages(loadedContent));
         setActivePageIndex(0);
@@ -153,7 +154,14 @@ export default function TextEditor() {
     if (savedRangeRef.current && isNodeInsideAnyEditorPage(savedRangeRef.current.commonAncestorContainer)) {
       selection.removeAllRanges();
       selection.addRange(savedRangeRef.current);
+      return;
     }
+
+    const fallbackRange = document.createRange();
+    fallbackRange.selectNodeContents(activePageNode);
+    fallbackRange.collapse(false);
+    selection.removeAllRanges();
+    selection.addRange(fallbackRange);
   };
 
   const syncPageHtmlFromDom = (pageIndex: number) => {
@@ -197,18 +205,16 @@ export default function TextEditor() {
     restoreSelection();
 
     const selection = window.getSelection();
-    const selectedText = selection?.toString()?.trim() || "";
-
-    if (selectedText) {
-      document.execCommand("createLink", false, safeUrl);
-    } else {
-      const text = linkText.trim() || safeUrl;
-      document.execCommand(
-        "insertHTML",
-        false,
-        `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`
-      );
+    if (!selection || selection.rangeCount === 0) {
+      toast.error("Place the cursor in the document first");
+      return;
     }
+
+    const range = selection.getRangeAt(0);
+    const selectedText = selection.toString().trim();
+    const text = linkText.trim() || selectedText || safeUrl;
+    const linkHtml = `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escapeHtml(text)}</a>`;
+    document.execCommand("insertHTML", false, linkHtml);
 
     syncPageHtmlFromDom(activePageIndexRef.current);
     saveCurrentSelection();
@@ -291,6 +297,19 @@ export default function TextEditor() {
         break;
       default:
         break;
+    }
+  };
+
+  const handleEditorClick = (event: MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const anchor = target.closest("a");
+    if (!anchor) return;
+
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      window.open(anchor.getAttribute("href") || "", "_blank", "noopener,noreferrer");
     }
   };
 
@@ -519,14 +538,8 @@ export default function TextEditor() {
                     }}
                     onMouseUp={saveCurrentSelection}
                     onKeyUp={saveCurrentSelection}
-                    onInput={(event) => {
-                      const nextHtml = event.currentTarget.innerHTML;
-                      setPages((prevPages) => {
-                        const nextPages = [...prevPages];
-                        nextPages[index] = nextHtml;
-                        return nextPages;
-                      });
-                    }}
+                    onInput={saveCurrentSelection}
+                    onClick={handleEditorClick}
                   />
                 </div>
                 <p className="text-xs text-muted-foreground text-center mt-2">

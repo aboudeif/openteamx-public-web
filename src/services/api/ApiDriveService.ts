@@ -2,11 +2,80 @@ import { IDriveService } from "@/services/interfaces/IDriveService";
 import { DriveItem } from "@/shared/types";
 import { api } from "@/lib/api";
 import { TextDocumentPayload } from "@/services/interfaces/IDriveService";
+import { DriveItemType } from "@/shared/enums";
+
+type ApiFileResponse = {
+  id: string;
+  name: string;
+  mimeType?: string;
+  size?: number | string;
+  updatedAt?: string;
+  createdAt?: string;
+  uploadedBy?: {
+    name?: string;
+  };
+  type?: string;
+  url?: string;
+};
+
+const toDisplayDate = (value?: string) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString();
+};
+
+const toDisplaySize = (value?: number | string) => {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value !== "number" || value <= 0) {
+    return undefined;
+  }
+
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const inferDriveType = (file: ApiFileResponse): DriveItemType => {
+  const explicitType = (file.type || "").toLowerCase();
+  if (explicitType === DriveItemType.Folder) return DriveItemType.Folder;
+  if (explicitType === DriveItemType.Spreadsheet) return DriveItemType.Spreadsheet;
+  if (explicitType === DriveItemType.Image) return DriveItemType.Image;
+  if (explicitType === DriveItemType.Link) return DriveItemType.Link;
+  if (explicitType === DriveItemType.Document) return DriveItemType.Document;
+
+  const mime = (file.mimeType || "").toLowerCase();
+  const name = file.name.toLowerCase();
+
+  if (mime.includes("sheet") || mime.includes("excel") || name.endsWith(".xlsx") || name.endsWith(".csv")) {
+    return DriveItemType.Spreadsheet;
+  }
+  if (mime.startsWith("image/")) {
+    return DriveItemType.Image;
+  }
+  if (mime.includes("url")) {
+    return DriveItemType.Link;
+  }
+  return DriveItemType.Document;
+};
+
+const mapFileToDriveItem = (file: ApiFileResponse): DriveItem => ({
+  id: file.id,
+  name: file.name,
+  type: inferDriveType(file),
+  modifiedAt: toDisplayDate(file.updatedAt || file.createdAt),
+  modifiedBy: file.uploadedBy?.name || "Team member",
+  size: toDisplaySize(file.size),
+  url: file.url,
+});
 
 export class ApiDriveService implements IDriveService {
   async getFiles(teamId: string, folderId?: string): Promise<DriveItem[]> {
-    const params = folderId ? `?folderId=${folderId}` : '';
-    return api.get<DriveItem[]>(`/teams/${teamId}/files${params}`);
+    const params = folderId ? `?folderId=${folderId}` : "";
+    const files = await api.get<ApiFileResponse[]>(`/teams/${teamId}/files${params}`);
+    return Array.isArray(files) ? files.map(mapFileToDriveItem) : [];
   }
 
   async createFolder(teamId: string, name: string, parentId?: string): Promise<DriveItem> {
@@ -40,7 +109,7 @@ export class ApiDriveService implements IDriveService {
   }
 
   async createTextDocument(teamId: string, title: string, content: string, folderId?: string): Promise<DriveItem> {
-    return api.post<DriveItem>(`/teams/${teamId}/drive/documents`, { title, content, folderId, type: "text" });
+    return api.post<DriveItem>(`/teams/${teamId}/drive/documents`, { name: title, content, folderId });
   }
 
   async createSpreadsheet(teamId: string, title: string, folderId?: string): Promise<DriveItem> {
@@ -64,7 +133,7 @@ export class ApiDriveService implements IDriveService {
   }
 
   async saveDocumentContent(teamId: string, fileId: string, title: string, content: string): Promise<void> {
-    return api.put(`/teams/${teamId}/drive/documents/${fileId}`, { title, content });
+    return api.put(`/teams/${teamId}/drive/documents/${fileId}`, { name: title, content });
   }
 
   async getSpreadsheetContent(teamId: string, fileId: string): Promise<any> {

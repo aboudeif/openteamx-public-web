@@ -307,8 +307,8 @@ export default function TeamDrive() {
               </div>
 
               {displayItems.map((item) => {
-                const Icon = fileIcons[item.type];
-                const colorClass = fileColors[item.type];
+                const Icon = fileIcons[item.type as DriveItemType] || FileText;
+                const colorClass = fileColors[item.type] || "text-muted-foreground";
                 const isSelected = selectedItems.includes(item.id);
 
                 return (
@@ -394,8 +394,8 @@ export default function TeamDrive() {
           ) : (
             <div className="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
               {displayItems.map((item) => {
-                const Icon = fileIcons[item.type];
-                const colorClass = fileColors[item.type];
+                const Icon = fileIcons[item.type as DriveItemType] || FileText;
+                const colorClass = fileColors[item.type] || "text-muted-foreground";
 
                 return (
                   <div
