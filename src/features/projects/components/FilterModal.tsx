@@ -7,33 +7,37 @@ import { cn } from "@/lib/utils";
 interface FilterModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialFilters?: TaskFilters;
+  onApply?: (filters: TaskFilters) => void;
+  assigneeOptions?: Array<{ id: string; name: string }>;
+  statusOptions?: string[];
+  priorityOptions?: string[];
 }
 
-const statuses = [
-  { value: "todo", label: "To Do", icon: Circle, color: "text-muted-foreground" },
-  { value: "in_progress", label: "In Progress", icon: Timer, color: "text-info" },
-  { value: "review", label: "In Review", icon: AlertCircle, color: "text-warning" },
-  { value: "done", label: "Done", icon: CheckCircle2, color: "text-success" },
-];
+export interface TaskFilters {
+  statuses: string[];
+  priorities: string[];
+  assignees: string[];
+  dueDateFrom: string;
+  dueDateTo: string;
+}
 
-const priorities = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-];
-
-const teamMembers = [
-  { id: "SC", name: "Sarah Chen" },
-  { id: "MJ", name: "Mike Johnson" },
-  { id: "AK", name: "Alex Kim" },
-  { id: "ED", name: "Emily Davis" },
-];
-
-export function FilterModal({ open, onOpenChange }: FilterModalProps) {
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
-  const [selectedPriorities, setSelectedPriorities] = useState<string[]>([]);
-  const [selectedMembers, setSelectedMembers] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState({ from: "", to: "" });
+export function FilterModal({
+  open,
+  onOpenChange,
+  initialFilters,
+  onApply,
+  assigneeOptions = [],
+  statusOptions = [],
+  priorityOptions = [],
+}: FilterModalProps) {
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(initialFilters?.statuses || []);
+  const [selectedPriorities, setSelectedPriorities] = useState<string[]>(initialFilters?.priorities || []);
+  const [selectedMembers, setSelectedMembers] = useState<string[]>(initialFilters?.assignees || []);
+  const [dateRange, setDateRange] = useState({
+    from: initialFilters?.dueDateFrom || "",
+    to: initialFilters?.dueDateTo || "",
+  });
 
   if (!open) return null;
 
@@ -60,13 +64,49 @@ export function FilterModal({ open, onOpenChange }: FilterModalProps) {
     setSelectedPriorities([]);
     setSelectedMembers([]);
     setDateRange({ from: "", to: "" });
+    onApply?.({
+      statuses: [],
+      priorities: [],
+      assignees: [],
+      dueDateFrom: "",
+      dueDateTo: "",
+    });
   };
 
   const applyFilters = () => {
+    onApply?.({
+      statuses: selectedStatuses,
+      priorities: selectedPriorities,
+      assignees: selectedMembers,
+      dueDateFrom: dateRange.from,
+      dueDateTo: dateRange.to,
+    });
     onOpenChange(false);
   };
 
   const hasFilters = selectedStatuses.length > 0 || selectedPriorities.length > 0 || selectedMembers.length > 0 || dateRange.from || dateRange.to;
+  const getStatusIcon = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized === "in_progress") return Timer;
+    if (normalized === "review") return AlertCircle;
+    if (normalized === "done") return CheckCircle2;
+    return Circle;
+  };
+  const getStatusColor = (value: string) => {
+    const normalized = value.toLowerCase();
+    if (normalized === "in_progress") return "text-info";
+    if (normalized === "review") return "text-warning";
+    if (normalized === "done") return "text-success";
+    return "text-muted-foreground";
+  };
+  const getStatusLabel = (value: string) =>
+    value
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  const getPriorityLabel = (value: string) =>
+    value
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -83,24 +123,25 @@ export function FilterModal({ open, onOpenChange }: FilterModalProps) {
           <div>
             <label className="text-sm font-medium text-foreground mb-3 block">Status</label>
             <div className="flex flex-wrap gap-2">
-              {statuses.map((status) => {
-                const Icon = status.icon;
+              {statusOptions.map((status) => {
+                const Icon = getStatusIcon(status);
                 return (
                   <button
-                    key={status.value}
-                    onClick={() => toggleStatus(status.value)}
+                    key={status}
+                    onClick={() => toggleStatus(status)}
                     className={cn(
                       "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                      selectedStatuses.includes(status.value)
+                      selectedStatuses.includes(status)
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground hover:bg-muted/80"
                     )}
                   >
-                    <Icon className={cn("w-4 h-4", !selectedStatuses.includes(status.value) && status.color)} />
-                    {status.label}
+                    <Icon className={cn("w-4 h-4", !selectedStatuses.includes(status) && getStatusColor(status))} />
+                    {getStatusLabel(status)}
                   </button>
                 );
               })}
+              {statusOptions.length === 0 && <p className="text-xs text-muted-foreground">No statuses available.</p>}
             </div>
           </div>
 
@@ -108,20 +149,21 @@ export function FilterModal({ open, onOpenChange }: FilterModalProps) {
           <div>
             <label className="text-sm font-medium text-foreground mb-3 block">Priority</label>
             <div className="flex flex-wrap gap-2">
-              {priorities.map((priority) => (
+              {priorityOptions.map((priority) => (
                 <button
-                  key={priority.value}
-                  onClick={() => togglePriority(priority.value)}
+                  key={priority}
+                  onClick={() => togglePriority(priority)}
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-                    selectedPriorities.includes(priority.value)
+                    selectedPriorities.includes(priority)
                       ? "bg-primary text-primary-foreground"
                       : "bg-muted text-muted-foreground hover:bg-muted/80"
                   )}
                 >
-                  {priority.label}
+                  {getPriorityLabel(priority)}
                 </button>
               ))}
+              {priorityOptions.length === 0 && <p className="text-xs text-muted-foreground">No priorities available.</p>}
             </div>
           </div>
 
@@ -129,7 +171,7 @@ export function FilterModal({ open, onOpenChange }: FilterModalProps) {
           <div>
             <label className="text-sm font-medium text-foreground mb-3 block">Assignee</label>
             <div className="flex flex-wrap gap-2">
-              {teamMembers.map((member) => (
+              {assigneeOptions.map((member) => (
                 <button
                   key={member.id}
                   onClick={() => toggleMember(member.id)}
@@ -149,6 +191,9 @@ export function FilterModal({ open, onOpenChange }: FilterModalProps) {
                   {member.name}
                 </button>
               ))}
+              {assigneeOptions.length === 0 && (
+                <p className="text-xs text-muted-foreground">No assignees available.</p>
+              )}
             </div>
           </div>
 

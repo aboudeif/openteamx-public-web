@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -32,7 +32,7 @@ import {
 } from "@/components/ui/collapsible";
 import { AddProjectModal } from "@/features/projects/components/AddProjectModal";
 import { AddTaskModal } from "@/features/projects/components/AddTaskModal";
-import { FilterModal } from "@/features/projects/components/FilterModal";
+import { FilterModal, TaskFilters } from "@/features/projects/components/FilterModal";
 import { projectService } from "@/services";
 import { api } from "@/lib/api";
 import { Project, Task } from "@/shared/types";
@@ -87,6 +87,7 @@ function TaskRow({
   onReassignTask,
   onDeleteTask,
   teamMembers,
+  autoExpand,
 }: {
   task: Task;
   level?: number;
@@ -97,10 +98,17 @@ function TaskRow({
   onReassignTask: (taskId: string, userId: string) => void;
   onDeleteTask: (taskId: string) => void;
   teamMembers: TeamMemberOption[];
+  autoExpand?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const StatusIcon = statusConfig[task.status].icon;
   const hasChildren = task.childTasks && task.childTasks.length > 0;
+
+  useEffect(() => {
+    if (autoExpand && hasChildren) {
+      setExpanded(true);
+    }
+  }, [autoExpand, hasChildren]);
 
   return (
     <>
@@ -252,6 +260,7 @@ function TaskRow({
               onReassignTask={onReassignTask}
               onDeleteTask={onDeleteTask}
               teamMembers={teamMembers}
+              autoExpand={autoExpand}
             />
           ))}
         </div>
@@ -275,6 +284,13 @@ export default function TeamProjects() {
   const [taskToEdit, setTaskToEdit] = useState<EditTaskPayload | undefined>(undefined);
   const [projectToEdit, setProjectToEdit] = useState<{ id: string; title?: string; description?: string; dueDate?: string } | undefined>(undefined);
   const [isTeamLeader, setIsTeamLeader] = useState(false);
+  const [taskFilters, setTaskFilters] = useState<TaskFilters>({
+    statuses: [],
+    priorities: [],
+    assignees: [],
+    dueDateFrom: "",
+    dueDateTo: "",
+  });
 
   const fetchProjects = useCallback(async () => {
     if (!teamId) {
@@ -341,6 +357,119 @@ export default function TeamProjects() {
   const handleAddTask = (projectId: string) => {
     setSelectedProjectId(projectId);
     setShowAddTask(true);
+  };
+
+  const hasActiveFilters = useMemo(
+    () =>
+      taskFilters.statuses.length > 0 ||
+      taskFilters.priorities.length > 0 ||
+      taskFilters.assignees.length > 0 ||
+      Boolean(taskFilters.dueDateFrom) ||
+      Boolean(taskFilters.dueDateTo) ||
+      Boolean(searchQuery.trim()),
+    [searchQuery, taskFilters],
+  );
+
+  const assigneeOptions = useMemo(() => {
+    const set = new Set<string>();
+    projectList.forEach((project) => {
+      (project.tasks || []).forEach((task) => {
+        const walk = (node: Task) => {
+          (node.assignees || []).forEach((name) => {
+            if (name) set.add(name);
+          });
+          (node.childTasks || []).forEach(walk);
+        };
+        walk(task);
+      });
+    });
+    return Array.from(set).sort().map((assignee) => ({ id: assignee, name: assignee }));
+  }, [projectList]);
+
+  const statusOptions = useMemo(() => {
+    const set = new Set<string>();
+    const walk = (node: Task) => {
+      if (node.status) set.add(String(node.status).toLowerCase());
+      (node.childTasks || []).forEach(walk);
+    };
+    projectList.forEach((project) => (project.tasks || []).forEach(walk));
+    return Array.from(set).sort();
+  }, [projectList]);
+
+  const priorityOptions = useMemo(() => {
+    const set = new Set<string>();
+    const walk = (node: Task) => {
+      if (node.priority) set.add(String(node.priority).toLowerCase());
+      (node.childTasks || []).forEach(walk);
+    };
+    projectList.forEach((project) => (project.tasks || []).forEach(walk));
+    return Array.from(set).sort();
+  }, [projectList]);
+
+  const parseDate = (value?: string) => {
+    if (!value || value === "-") return null;
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const taskMatchesFilters = useCallback(
+    (task: Task) => {
+      const query = searchQuery.trim().toLowerCase();
+      const matchesSearch = !query || task.title.toLowerCase().includes(query);
+
+      const taskStatus = String(task.status || "").toLowerCase();
+      const taskPriority = String(task.priority || "").toLowerCase();
+      const matchesStatus = taskFilters.statuses.length === 0 || taskFilters.statuses.includes(taskStatus);
+      const matchesPriority = taskFilters.priorities.length === 0 || taskFilters.priorities.includes(taskPriority);
+      const taskAssignees = task.assignees || [];
+      const matchesAssignee =
+        taskFilters.assignees.length === 0 ||
+        taskFilters.assignees.some((selected) => taskAssignees.includes(selected));
+
+      const due = parseDate(task.dueDate);
+      const from = parseDate(taskFilters.dueDateFrom);
+      const to = parseDate(taskFilters.dueDateTo);
+      const matchesFrom = !from || (due ? due >= from : false);
+      const matchesTo = !to || (due ? due <= to : false);
+
+      return matchesSearch && matchesStatus && matchesPriority && matchesAssignee && matchesFrom && matchesTo;
+    },
+    [searchQuery, taskFilters],
+  );
+
+  const filterTaskTree = useCallback(
+    (tasks: Task[]): Task[] => {
+      return tasks.reduce<Task[]>((acc, task) => {
+        const filteredChildren = filterTaskTree(task.childTasks || []);
+        if (taskMatchesFilters(task) || filteredChildren.length > 0) {
+          acc.push({
+            ...task,
+            childTasks: filteredChildren,
+          });
+        }
+        return acc;
+      }, []);
+    },
+    [taskMatchesFilters],
+  );
+
+  const visibleProjects = useMemo(() => {
+    const mapped = projectList.map((project) => ({
+      ...project,
+      tasks: filterTaskTree(project.tasks || []),
+    }));
+    return hasActiveFilters ? mapped.filter((project) => (project.tasks || []).length > 0) : mapped;
+  }, [projectList, filterTaskTree, hasActiveFilters]);
+
+  const handleClearFilters = () => {
+    setSearchQuery("");
+    setTaskFilters({
+      statuses: [],
+      priorities: [],
+      assignees: [],
+      dueDateFrom: "",
+      dueDateTo: "",
+    });
   };
 
   const handleOpenCreateProject = () => {
@@ -474,11 +603,16 @@ export default function TeamProjects() {
             <Filter className="w-4 h-4 mr-2" />
             Filter
           </Button>
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={handleClearFilters}>
+              Clear
+            </Button>
+          )}
         </div>
 
         {/* Projects */}
         <div className="space-y-4">
-          {projectList.map((project) => {
+          {visibleProjects.map((project) => {
             const isExpanded = expandedProjects.includes(project.id);
             const tasks = project.tasks || [];
             const completedTasks = tasks.filter((t) => t.status === TaskStatus.Done).length;
@@ -587,6 +721,7 @@ export default function TeamProjects() {
                           onReassignTask={handleReassignTask}
                           onDeleteTask={handleDeleteTask}
                           teamMembers={teamMembers}
+                          autoExpand={hasActiveFilters}
                         />
                       ))}
                     </div>
@@ -635,7 +770,15 @@ export default function TeamProjects() {
           taskToEdit={taskToEdit}
           onUpdated={fetchProjects}
         />
-        <FilterModal open={showFilter} onOpenChange={setShowFilter} />
+        <FilterModal
+          open={showFilter}
+          onOpenChange={setShowFilter}
+          initialFilters={taskFilters}
+          onApply={setTaskFilters}
+          assigneeOptions={assigneeOptions}
+          statusOptions={statusOptions}
+          priorityOptions={priorityOptions}
+        />
       </div>
     </MainLayout>
   );

@@ -80,6 +80,7 @@ export interface Task {
   status: TaskStatus | string;
   priority: TaskPriority | string;
   assignee: string; // User ID or Initials
+  assignees?: string[];
   comments: number;
   userStory?: string;
   resources: string[];

@@ -25,6 +25,13 @@ type ApiTask = {
   priority?: string;
   dueDate?: string | null;
   estimatedHours?: number | null;
+  assignments?: Array<{
+    userId?: string;
+    user?: {
+      id?: string;
+      name?: string;
+    };
+  }>;
   task?: {
     id?: string;
     description?: string | null;
@@ -33,7 +40,25 @@ type ApiTask = {
     priority?: string;
     dueDate?: string | null;
     estimatedHours?: number | null;
+    assignments?: Array<{
+      userId?: string;
+      user?: {
+        id?: string;
+        name?: string;
+      };
+    }>;
   };
+};
+
+type ApiTaskDetails = {
+  id: string;
+  assignments?: Array<{
+    userId?: string;
+    user?: {
+      id?: string;
+      name?: string;
+    };
+  }>;
 };
 
 const TASK_CHILD_MARKER_PREFIX = "__PARENT_TASK__:";
@@ -89,15 +114,29 @@ export class ApiProjectService implements IProjectService {
     return TaskPriority.Medium;
   }
 
-  private toTask(task: ApiTask): Task {
+  private toTask(task: ApiTask, details?: ApiTaskDetails): Task {
     const source = task.task || task;
     const taskId = source.id || task.taskId || task.id;
+    const assignments = details?.assignments || source.assignments || [];
+    const assigneeNames = assignments
+      .map((assignment) => assignment.user?.name || assignment.userId || "")
+      .filter((value): value is string => Boolean(value));
+    const primaryAssigneeName = assigneeNames[0] || "";
+    const assigneeInitials = primaryAssigneeName
+      ? primaryAssigneeName
+          .split(" ")
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0]?.toUpperCase())
+          .join("") || "U"
+      : "U";
     return {
       id: taskId,
       title: source.title || "Untitled task",
       status: this.normalizeTaskStatus(source.status),
       priority: this.normalizeTaskPriority(source.priority),
-      assignee: "U",
+      assignee: assigneeInitials,
+      assignees: assigneeNames,
       comments: 0,
       resources: [],
       createdBy: "",
@@ -123,7 +162,28 @@ export class ApiProjectService implements IProjectService {
         try {
           const tasks = await this.getTasks(teamId, project.id);
           const rawTasks = Array.isArray(tasks) ? (tasks as ApiTask[]) : [];
-          const uiTasks = rawTasks.map((task) => this.toTask(task));
+          const taskDetails = await Promise.all(
+            rawTasks.map(async (rawTask) => {
+              const source = rawTask.task || rawTask;
+              const rawId = source.id || rawTask.taskId || rawTask.id;
+              if (!rawId) return null;
+              try {
+                return await api.get<ApiTaskDetails>(`/teams/${teamId}/tasks/${rawId}`);
+              } catch {
+                return null;
+              }
+            }),
+          );
+          const detailsById = new Map(
+            taskDetails
+              .filter((taskDetail): taskDetail is ApiTaskDetails => Boolean(taskDetail?.id))
+              .map((taskDetail) => [taskDetail.id, taskDetail]),
+          );
+          const uiTasks = rawTasks.map((task) => {
+            const source = task.task || task;
+            const rawId = source.id || task.taskId || task.id;
+            return this.toTask(task, rawId ? detailsById.get(rawId) : undefined);
+          });
           const taskById = new Map(uiTasks.map((task) => [task.id, task]));
 
           const parentMap = new Map<string, string>();
