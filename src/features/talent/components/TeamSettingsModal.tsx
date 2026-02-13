@@ -18,9 +18,9 @@ interface TeamSettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   team: {
-    id: number;
+    id: string | number;
     name: string;
-    description: string;
+    description?: string;
   };
 }
 
@@ -36,7 +36,7 @@ export function TeamSettingsModal({ open, onOpenChange, team }: TeamSettingsModa
   const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   const [formData, setFormData] = useState({
     name: team.name,
-    description: team.description,
+    description: team.description ?? "",
     isPublic: true,
     allowJoinRequests: true,
     showInDiscovery: true,
@@ -46,7 +46,7 @@ export function TeamSettingsModal({ open, onOpenChange, team }: TeamSettingsModa
   useEffect(() => {
     setFormData({
       name: team.name,
-      description: team.description,
+      description: team.description ?? "",
       isPublic: true,
       allowJoinRequests: true,
       showInDiscovery: true,

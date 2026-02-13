@@ -3,6 +3,23 @@ import { CreateTeamDto, Team, TeamDetail, TeamMember, TeamMembersResponse, Teams
 import { api } from "@/lib/api";
 
 export class ApiTeamService implements ITeamService {
+  private toArray<T>(payload: unknown): T[] {
+    if (Array.isArray(payload)) {
+      return payload as T[];
+    }
+
+    if (
+      payload &&
+      typeof payload === "object" &&
+      "data" in payload &&
+      Array.isArray((payload as { data?: unknown }).data)
+    ) {
+      return (payload as { data: T[] }).data;
+    }
+
+    return [];
+  }
+
   async getTeams(offset: number, limit: number): Promise<TeamsResponse> {
     return api.get<TeamsResponse>(`/teams?offset=${offset}&limit=${limit}`);
   }
@@ -24,11 +41,13 @@ export class ApiTeamService implements ITeamService {
   }
 
   async getMyActiveTeams(): Promise<Team[]> {
-    return api.get<Team[]>(`/teams/my-teams`);
+    const response = await api.get<unknown>(`/teams/my-teams`);
+    return this.toArray<Team>(response);
   }
 
   async getExTeams(): Promise<Team[]> {
-    return api.get<Team[]>(`/teams/ex-teams`);
+    const response = await api.get<unknown>(`/teams/ex-teams`);
+    return this.toArray<Team>(response);
   }
 
   async createTeam(team: CreateTeamDto): Promise<Team> {
