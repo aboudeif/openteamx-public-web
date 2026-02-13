@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,11 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { CreateRepoModal } from "@/features/repositories/components/CreateRepoModal";
 import { useNavigate, useParams } from "react-router-dom";
+import { integrationService, repositoryService } from "@/services";
+import { ApiError } from "@/lib/api";
 import {
   Search,
   Plus,
   GitBranch,
-  Clock,
   ExternalLink,
   Github,
   GitlabIcon,
@@ -45,68 +46,202 @@ const GitToolIcon = ({ tool }: { tool: string }) => {
   }
 };
 
-const repositories = [
-  {
-    id: "repo-1",
-    name: "frontend-app",
-    tool: "github",
-    toolName: "GitHub",
-    project: "Mobile App Redesign",
-    lastUpdate: "2 hours ago",
-    branch: "main",
-    commits: 1234,
-  },
-  {
-    id: "repo-2",
-    name: "backend-api",
-    tool: "github",
-    toolName: "GitHub",
-    project: null,
-    lastUpdate: "5 hours ago",
-    branch: "develop",
-    commits: 892,
-  },
-  {
-    id: "repo-3",
-    name: "design-system",
-    tool: "gitlab",
-    toolName: "GitLab",
-    project: "Website Revamp",
-    lastUpdate: "1 day ago",
-    branch: "main",
-    commits: 456,
-  },
-  {
-    id: "repo-4",
-    name: "mobile-app",
-    tool: "bitbucket",
-    toolName: "Bitbucket",
-    project: "Mobile App Redesign",
-    lastUpdate: "3 days ago",
-    branch: "feature/auth",
-    commits: 234,
-  },
-  {
-    id: "repo-5",
-    name: "devops-scripts",
-    tool: "azure-devops",
-    toolName: "Azure DevOps",
-    project: null,
-    lastUpdate: "1 week ago",
-    branch: "main",
-    commits: 78,
-  },
-];
+type ApiRepositoryItem = {
+  id: string;
+  provider?: string;
+  name: string;
+  defaultBranch?: string;
+  private?: boolean;
+  url?: string | null;
+};
+
+type ApiRepositoryListResponse = {
+  items?: ApiRepositoryItem[];
+};
+
+type RepositoryCard = {
+  id: string;
+  name: string;
+  tool: string;
+  toolName: string;
+  branch: string;
+  isPrivate: boolean;
+  url: string | null;
+};
+
+type ConnectedIntegration = {
+  provider?: string;
+  category?: string;
+  status?: string;
+};
+
+const providerLabels: Record<string, string> = {
+  github: "GitHub",
+  gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  "azure-devops": "Azure DevOps",
+};
+
+function normalizeProvider(provider?: string): string {
+  const value = (provider || "GITHUB").toLowerCase().replace(/_/g, "-");
+  if (value === "azuredevops") {
+    return "azure-devops";
+  }
+  return value;
+}
+
+function mapRepositoryToCard(repository: ApiRepositoryItem): RepositoryCard {
+  const tool = normalizeProvider(repository.provider);
+  return {
+    id: repository.id,
+    name: repository.name,
+    tool,
+    toolName: providerLabels[tool] || repository.provider || "Unknown",
+    branch: repository.defaultBranch || "main",
+    isPrivate: Boolean(repository.private),
+    url: repository.url || null,
+  };
+}
+
+function isNoRepositoriesState(error: unknown): boolean {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+
+  if (error.status === 404) {
+    return true;
+  }
+
+  const message = error.message.toLowerCase();
+  return message.includes("no active integration found");
+}
 
 export default function TeamRepositories() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [repositories, setRepositories] = useState<RepositoryCard[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [hasActiveVersionControlIntegration, setHasActiveVersionControlIntegration] = useState(false);
+  const [isCheckingIntegrations, setIsCheckingIntegrations] = useState(true);
   const navigate = useNavigate();
   const { teamId } = useParams();
 
-  const filteredRepos = repositories.filter((repo) =>
-    repo.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const hasConnectedVersionControlIntegration = (integrations: ConnectedIntegration[]): boolean => {
+    return integrations.some((item) => {
+      const category = (item.category || "").toUpperCase();
+      const status = (item.status || "").toUpperCase();
+      const provider = (item.provider || "").toUpperCase();
+      const isVersionControlProvider = ["GITHUB", "GITLAB", "BITBUCKET", "AZURE_DEVOPS"].includes(provider);
+      const isConnected = status !== "DISCONNECTED";
+      return isConnected && (category === "VERSION_CONTROL" || isVersionControlProvider);
+    });
+  };
+
+  const loadIntegrationState = useCallback(async () => {
+    if (!teamId) {
+      setHasActiveVersionControlIntegration(false);
+      setIsCheckingIntegrations(false);
+      return;
+    }
+
+    setIsCheckingIntegrations(true);
+    try {
+      const connectedByTeam = await integrationService.getConnectedIntegrations(teamId);
+      const teamList = Array.isArray(connectedByTeam) ? connectedByTeam as ConnectedIntegration[] : [];
+      const candidateProviders = Array.from(
+        new Set(
+          teamList
+            .filter(hasConnectedVersionControlIntegration)
+            .map((item) => String(item.provider || "").toLowerCase().replace(/_/g, "-"))
+            .filter(Boolean),
+        ),
+      );
+
+      if (candidateProviders.length === 0) {
+        const connectedByUser = await integrationService.getConnectedIntegrations();
+        const userList = Array.isArray(connectedByUser) ? connectedByUser as ConnectedIntegration[] : [];
+        setHasActiveVersionControlIntegration(hasConnectedVersionControlIntegration(userList));
+      } else {
+        const statusChecks = await Promise.allSettled(
+          candidateProviders.map((provider) => integrationService.getIntegrationStatus(provider, teamId)),
+        );
+        const hasUserScopedActive = statusChecks.some((result) => {
+          if (result.status !== "fulfilled") return false;
+          const status = String(result.value?.status || "").toUpperCase();
+          return status !== "DISCONNECTED";
+        });
+        if (hasUserScopedActive) {
+          setHasActiveVersionControlIntegration(true);
+        } else {
+          const connectedByUser = await integrationService.getConnectedIntegrations();
+          const userList = Array.isArray(connectedByUser) ? connectedByUser as ConnectedIntegration[] : [];
+          setHasActiveVersionControlIntegration(hasConnectedVersionControlIntegration(userList));
+        }
+      }
+    } catch {
+      setHasActiveVersionControlIntegration(false);
+    } finally {
+      setIsCheckingIntegrations(false);
+    }
+  }, [teamId]);
+
+  const loadRepositories = useCallback(async () => {
+    if (!teamId) {
+      setRepositories([]);
+      setErrorMessage("Team context is missing in URL.");
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    try {
+      const response = (await repositoryService.getRepositories(teamId)) as
+        | ApiRepositoryItem[]
+        | ApiRepositoryListResponse;
+
+      const items = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.items)
+          ? response.items
+          : [];
+
+      setRepositories(items.map(mapRepositoryToCard));
+    } catch (error) {
+      setRepositories([]);
+
+      if (isNoRepositoriesState(error)) {
+        setErrorMessage(null);
+      } else {
+        const message = error instanceof Error ? error.message : "Failed to load repositories";
+        setErrorMessage(message);
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [teamId]);
+
+  useEffect(() => {
+    void loadRepositories();
+  }, [loadRepositories]);
+
+  useEffect(() => {
+    void loadIntegrationState();
+  }, [loadIntegrationState]);
+
+  const filteredRepos = useMemo(
+    () => repositories.filter((repo) => repo.name.toLowerCase().includes(searchQuery.toLowerCase())),
+    [repositories, searchQuery]
   );
+
+  const handleCreateModalChange = (open: boolean) => {
+    setShowCreateModal(open);
+    if (!open) {
+      void loadRepositories();
+      void loadIntegrationState();
+    }
+  };
 
   return (
     <MainLayout>
@@ -120,7 +255,15 @@ export default function TeamRepositories() {
                 Manage your team's code repositories
               </p>
             </div>
-            <Button onClick={() => setShowCreateModal(true)}>
+            <Button
+              onClick={() => setShowCreateModal(true)}
+              disabled={isCheckingIntegrations || !hasActiveVersionControlIntegration}
+              title={
+                hasActiveVersionControlIntegration
+                  ? "Add repository"
+                  : "Connect an active version control integration first"
+              }
+            >
               <Plus className="w-4 h-4 mr-2" />
               Add Repository
             </Button>
@@ -142,7 +285,21 @@ export default function TeamRepositories() {
         {/* Repository List */}
         <ScrollArea className="flex-1 px-6">
           <div className="py-4 space-y-3">
-            {filteredRepos.length === 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12">
+                <GitBranch className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">Loading repositories...</h3>
+              </div>
+            ) : errorMessage ? (
+              <div className="text-center py-12">
+                <GitBranch className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">Failed to load repositories</h3>
+                <p className="text-sm text-muted-foreground mb-4">{errorMessage}</p>
+                <Button variant="outline" onClick={() => void loadRepositories()}>
+                  Retry
+                </Button>
+              </div>
+            ) : filteredRepos.length === 0 ? (
               <div className="text-center py-12">
                 <GitBranch className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-foreground mb-2">No repositories found</h3>
@@ -178,8 +335,8 @@ export default function TeamRepositories() {
                       </div>
                     </div>
 
-                    <Badge variant={repo.project ? "default" : "secondary"}>
-                      {repo.project || "Default"}
+                    <Badge variant="secondary">
+                      {repo.isPrivate ? "Private" : "Public"}
                     </Badge>
                   </div>
 
@@ -188,11 +345,7 @@ export default function TeamRepositories() {
                       <GitBranch className="w-4 h-4" />
                       {repo.branch}
                     </span>
-                    <span>{repo.commits} commits</span>
-                    <span className="flex items-center gap-1.5">
-                      <Clock className="w-4 h-4" />
-                      {repo.lastUpdate}
-                    </span>
+                    {repo.url ? <span className="truncate">Open in provider</span> : null}
                   </div>
                 </button>
               ))
@@ -201,7 +354,7 @@ export default function TeamRepositories() {
         </ScrollArea>
       </div>
 
-      <CreateRepoModal open={showCreateModal} onOpenChange={setShowCreateModal} />
+      <CreateRepoModal open={showCreateModal} onOpenChange={handleCreateModalChange} teamId={teamId} />
     </MainLayout>
   );
 }

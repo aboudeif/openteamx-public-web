@@ -5,8 +5,9 @@ export class ApiIntegrationService {
     return api.get<any>("/integrations");
   }
 
-  async getConnectedIntegrations(): Promise<any[]> {
-    return api.get<any[]>("/integrations/connected");
+  async getConnectedIntegrations(teamId?: string): Promise<any[]> {
+    const query = teamId ? `?teamId=${encodeURIComponent(teamId)}` : "";
+    return api.get<any[]>(`/integrations/connected${query}`);
   }
 
   getConnectUrl(provider: string, teamId?: string): string {

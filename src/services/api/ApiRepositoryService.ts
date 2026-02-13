@@ -37,7 +37,8 @@ export class ApiRepositoryService {
     return api.delete(`/teams/${teamId}/repositories/${repositoryId}`);
   }
 
-  async getAvailableRepos(provider: string): Promise<any[]> {
-    return api.get<any[]>(`/integrations/git/${provider}/repos`);
+  async getAvailableRepos(provider: string, teamId: string): Promise<any[]> {
+    const query = `?teamId=${encodeURIComponent(teamId)}`;
+    return api.get<any[]>(`/integrations/git/${provider}/repos${query}`);
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,97 +6,208 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useNavigate, useParams } from "react-router-dom";
+import { repositoryService } from "@/services";
 import {
   ArrowLeft,
   GitBranch,
-  Clock,
-  Star,
-  Eye,
-  GitFork,
   Code,
   FileText,
   GitCommit,
   Users,
-  Settings,
   Search,
   ChevronDown,
   Folder,
   File,
   History,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-const repoData = {
-  name: "frontend-app",
-  description: "React frontend application for the main product",
-  tool: "github",
-  stars: 42,
-  watchers: 12,
-  forks: 8,
-  language: "TypeScript",
-  lastCommit: "2 hours ago",
-  branch: "main",
-  branches: ["main", "develop", "feature/auth", "feature/dashboard"],
+type RepoDetails = {
+  id: string;
+  name: string;
+  defaultBranch?: string;
+  provider?: string;
+  private?: boolean;
+  url?: string | null;
 };
 
-const files = [
-  { type: "folder", name: "src", lastCommit: "feat: add new components", date: "2 hours ago" },
-  { type: "folder", name: "public", lastCommit: "chore: update favicon", date: "5 days ago" },
-  { type: "folder", name: "tests", lastCommit: "test: add unit tests", date: "1 day ago" },
-  { type: "file", name: ".gitignore", lastCommit: "chore: update gitignore", date: "2 weeks ago" },
-  { type: "file", name: "package.json", lastCommit: "chore: bump dependencies", date: "3 days ago" },
-  { type: "file", name: "README.md", lastCommit: "docs: update readme", date: "1 week ago" },
-  { type: "file", name: "tsconfig.json", lastCommit: "chore: strict mode", date: "2 weeks ago" },
-  { type: "file", name: "vite.config.ts", lastCommit: "feat: add plugins", date: "4 days ago" },
-];
+type BranchItem = {
+  name: string;
+  isDefault?: boolean;
+};
 
-const commits = [
-  {
-    id: "abc123",
-    message: "feat: add new authentication flow",
-    author: "Sarah Chen",
-    authorAvatar: "SC",
-    date: "2 hours ago",
-    sha: "abc1234",
-  },
-  {
-    id: "def456",
-    message: "fix: resolve navigation issue on mobile",
-    author: "Mike Johnson",
-    authorAvatar: "MJ",
-    date: "5 hours ago",
-    sha: "def4567",
-  },
-  {
-    id: "ghi789",
-    message: "chore: update dependencies to latest versions",
-    author: "Alex Kim",
-    authorAvatar: "AK",
-    date: "1 day ago",
-    sha: "ghi7890",
-  },
-  {
-    id: "jkl012",
-    message: "docs: improve API documentation",
-    author: "Emily Davis",
-    authorAvatar: "ED",
-    date: "2 days ago",
-    sha: "jkl0123",
-  },
-];
+type TreeItem = {
+  type: "dir" | "file" | string;
+  name: string;
+  path: string;
+};
 
-const contributors = [
-  { name: "Sarah Chen", avatar: "SC", commits: 245, additions: 12450, deletions: 3200 },
-  { name: "Mike Johnson", avatar: "MJ", commits: 189, additions: 8900, deletions: 2100 },
-  { name: "Alex Kim", avatar: "AK", commits: 156, additions: 6700, deletions: 1800 },
-  { name: "Emily Davis", avatar: "ED", commits: 98, additions: 4200, deletions: 980 },
-];
+type TreeResponse = {
+  items?: TreeItem[];
+};
+
+type CommitItem = {
+  id: string;
+  message: string;
+  author?: string;
+  timestamp?: string;
+};
+
+type ContributorItem = {
+  id: string;
+  name: string;
+  commits: number;
+};
+
+type BlobResponse = {
+  content?: string | null;
+  encoding?: string;
+};
+
+function formatRelativeTime(iso?: string): string {
+  if (!iso) return "recently";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "recently";
+  const diffMs = Date.now() - d.getTime();
+  const minutes = Math.floor(diffMs / (1000 * 60));
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function getInitials(name?: string): string {
+  if (!name) return "NA";
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "NA";
+}
 
 export default function TeamRepository() {
   const [activeTab, setActiveTab] = useState("code");
   const [searchQuery, setSearchQuery] = useState("");
+  const [repo, setRepo] = useState<RepoDetails | null>(null);
+  const [branches, setBranches] = useState<BranchItem[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState("main");
+  const [files, setFiles] = useState<TreeItem[]>([]);
+  const [commits, setCommits] = useState<CommitItem[]>([]);
+  const [contributors, setContributors] = useState<ContributorItem[]>([]);
+  const [readmeContent, setReadmeContent] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-  const { teamId } = useParams();
+  const { teamId, repositoryId } = useParams();
+
+  useEffect(() => {
+    const loadRepository = async () => {
+      if (!teamId || !repositoryId) {
+        setError("Missing repository context");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const [details, branchList] = await Promise.all([
+          repositoryService.getRepositoryDetails(teamId, repositoryId) as Promise<RepoDetails>,
+          repositoryService.getBranches(teamId, repositoryId) as Promise<BranchItem[]>,
+        ]);
+        setRepo(details);
+        const resolvedBranches = Array.isArray(branchList) ? branchList : [];
+        setBranches(resolvedBranches);
+        const defaultBranch =
+          resolvedBranches.find((branch) => branch.isDefault)?.name ||
+          details.defaultBranch ||
+          resolvedBranches[0]?.name ||
+          "main";
+        setSelectedBranch(defaultBranch);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Failed to load repository";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadRepository();
+  }, [repositoryId, teamId]);
+
+  useEffect(() => {
+    const loadRepositoryContent = async () => {
+      if (!teamId || !repositoryId || !selectedBranch) return;
+      try {
+        const [tree, commitList, contributorList] = await Promise.all([
+          repositoryService.getRepositoryTree(teamId, repositoryId, "", selectedBranch) as Promise<TreeResponse>,
+          repositoryService.getCommits(teamId, repositoryId, selectedBranch) as Promise<CommitItem[]>,
+          repositoryService.getContributors(teamId, repositoryId) as Promise<ContributorItem[]>,
+        ]);
+
+        const treeItems = Array.isArray(tree?.items) ? tree.items : [];
+        setFiles(treeItems);
+        setCommits(Array.isArray(commitList) ? commitList : []);
+        setContributors(Array.isArray(contributorList) ? contributorList : []);
+
+        const readmeItem = treeItems.find((item) => item.type === "file" && item.name.toLowerCase() === "readme.md");
+        if (readmeItem) {
+          try {
+            const blob = (await repositoryService.getFileContent(
+              teamId,
+              repositoryId,
+              readmeItem.path,
+              selectedBranch
+            )) as BlobResponse;
+            if (blob.content && blob.encoding === "base64") {
+              setReadmeContent(atob(blob.content.replace(/\n/g, "")));
+            } else {
+              setReadmeContent("");
+            }
+          } catch {
+            setReadmeContent("");
+          }
+        } else {
+          setReadmeContent("");
+        }
+      } catch {
+        setFiles([]);
+        setCommits([]);
+        setContributors([]);
+        setReadmeContent("");
+      }
+    };
+
+    void loadRepositoryContent();
+  }, [repositoryId, selectedBranch, teamId]);
+
+  const filteredCommits = useMemo(
+    () => commits.filter((commit) => commit.message.toLowerCase().includes(searchQuery.toLowerCase())),
+    [commits, searchQuery]
+  );
+
+  if (loading) {
+    return (
+      <MainLayout>
+        <div className="p-6 text-sm text-muted-foreground">Loading repository...</div>
+      </MainLayout>
+    );
+  }
+
+  if (error || !repo) {
+    return (
+      <MainLayout>
+        <div className="p-6">
+          <p className="text-sm text-destructive mb-4">{error || "Repository not found"}</p>
+          <Button variant="outline" onClick={() => navigate(`/${teamId}/repositories`)}>
+            Back to repositories
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -115,27 +226,25 @@ export default function TeamRepository() {
             <div>
               <h1 className="text-xl font-semibold text-foreground flex items-center gap-2">
                 <GitBranch className="w-5 h-5 text-primary" />
-                {repoData.name}
+                {repo.name}
               </h1>
-              <p className="text-sm text-muted-foreground">{repoData.description}</p>
+              <p className="text-sm text-muted-foreground">
+                {repo.url ? (
+                  <a href={repo.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                    {repo.url}
+                  </a>
+                ) : (
+                  "Connected repository"
+                )}
+              </p>
             </div>
           </div>
 
           {/* Stats */}
           <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <button className="flex items-center gap-1.5 hover:text-foreground transition-colors" aria-label="Star repository">
-              <Star className="w-4 h-4" />
-              <span>{repoData.stars}</span>
-            </button>
-            <button className="flex items-center gap-1.5 hover:text-foreground transition-colors" aria-label="Watch repository">
-              <Eye className="w-4 h-4" />
-              <span>{repoData.watchers}</span>
-            </button>
-            <button className="flex items-center gap-1.5 hover:text-foreground transition-colors" aria-label="Fork repository">
-              <GitFork className="w-4 h-4" />
-              <span>{repoData.forks}</span>
-            </button>
-            <Badge variant="secondary">{repoData.language}</Badge>
+            <Badge variant="secondary">{repo.provider || "GITHUB"}</Badge>
+            <Badge variant="outline">{repo.private ? "Private" : "Public"}</Badge>
+            <span>{contributors.length} contributors</span>
           </div>
         </header>
 
@@ -174,11 +283,11 @@ export default function TeamRepository() {
               <div className="flex items-center gap-3 mb-4">
                 <Button variant="outline" size="sm" className="gap-2">
                   <GitBranch className="w-4 h-4" />
-                  {repoData.branch}
+                  {selectedBranch}
                   <ChevronDown className="w-3 h-3" />
                 </Button>
                 <span className="text-sm text-muted-foreground">
-                  {repoData.branches.length} branches
+                  {branches.length} branches
                 </span>
               </div>
 
@@ -187,7 +296,7 @@ export default function TeamRepository() {
                 <div className="bg-muted/50 px-4 py-3 border-b border-border">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <History className="w-4 h-4" />
-                    <span>Last commit: {repoData.lastCommit}</span>
+                    <span>Last commit: {formatRelativeTime(commits[0]?.timestamp)}</span>
                   </div>
                 </div>
                 <div className="divide-y divide-border">
@@ -203,8 +312,8 @@ export default function TeamRepository() {
                         <File className="w-4 h-4 text-muted-foreground" />
                       )}
                       <span className="font-medium text-foreground min-w-[150px]">{file.name}</span>
-                      <span className="text-sm text-muted-foreground flex-1 truncate">{file.lastCommit}</span>
-                      <span className="text-sm text-muted-foreground">{file.date}</span>
+                      <span className="text-sm text-muted-foreground flex-1 truncate">{file.path}</span>
+                      <span className="text-sm text-muted-foreground">{file.type}</span>
                     </button>
                   ))}
                 </div>
@@ -217,18 +326,13 @@ export default function TeamRepository() {
                   <span className="font-medium">README.md</span>
                 </div>
                 <div className="p-6 prose prose-sm max-w-none dark:prose-invert">
-                  <h1>Frontend App</h1>
-                  <p>A React-based frontend application for the main product.</p>
-                  <h2>Getting Started</h2>
-                  <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
-                    <code>npm install{"\n"}npm run dev</code>
-                  </pre>
-                  <h2>Features</h2>
-                  <ul>
-                    <li>Modern React with TypeScript</li>
-                    <li>Tailwind CSS for styling</li>
-                    <li>Vite for fast development</li>
-                  </ul>
+                  {readmeContent ? (
+                    <pre className="bg-muted p-4 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                      <code>{readmeContent}</code>
+                    </pre>
+                  ) : (
+                    <p>No README found in this branch.</p>
+                  )}
                 </div>
               </div>
             </TabsContent>
@@ -247,7 +351,7 @@ export default function TeamRepository() {
               </div>
 
               <div className="space-y-3">
-                {commits.map((commit) => (
+                {filteredCommits.map((commit) => (
                   <div
                     key={commit.id}
                     className="p-4 border border-border rounded-lg hover:border-primary/30 transition-colors"
@@ -255,19 +359,19 @@ export default function TeamRepository() {
                     <div className="flex items-start justify-between">
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium text-primary">
-                          {commit.authorAvatar}
+                          {getInitials(commit.author)}
                         </div>
                         <div>
                           <p className="font-medium text-foreground">{commit.message}</p>
                           <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-                            <span>{commit.author}</span>
+                            <span>{commit.author || "Unknown"}</span>
                             <span>•</span>
-                            <span>{commit.date}</span>
+                            <span>{formatRelativeTime(commit.timestamp)}</span>
                           </div>
                         </div>
                       </div>
                       <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">
-                        {commit.sha}
+                        {commit.id.slice(0, 7)}
                       </code>
                     </div>
                   </div>
@@ -280,21 +384,17 @@ export default function TeamRepository() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {contributors.map((contributor) => (
                   <div
-                    key={contributor.name}
+                    key={contributor.id}
                     className="p-4 border border-border rounded-lg"
                   >
                     <div className="flex items-center gap-3 mb-3">
                       <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-sm font-medium text-primary">
-                        {contributor.avatar}
+                        {getInitials(contributor.name)}
                       </div>
                       <div>
                         <p className="font-medium text-foreground">{contributor.name}</p>
                         <p className="text-sm text-muted-foreground">{contributor.commits} commits</p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      <span className="text-success">+{contributor.additions.toLocaleString()}</span>
-                      <span className="text-destructive">-{contributor.deletions.toLocaleString()}</span>
                     </div>
                   </div>
                 ))}
