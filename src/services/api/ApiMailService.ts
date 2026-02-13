@@ -55,6 +55,14 @@ export class ApiMailService {
     return api.post<any>(`/teams/${teamId}/mail/${threadId}/read`);
   }
 
+  async markAsUnread(teamId: string, threadId: string): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/unread`);
+  }
+
+  async setStarred(teamId: string, threadId: string, starred: boolean): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/star`, { starred });
+  }
+
   async archiveThread(teamId: string, threadId: string): Promise<any> {
     return api.post<any>(`/teams/${teamId}/mail/${threadId}/archive`);
   }
