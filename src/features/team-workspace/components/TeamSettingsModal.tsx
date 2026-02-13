@@ -8,6 +8,13 @@ import { toast } from "sonner";
 interface TeamSettingsModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  team?: {
+    name?: string;
+    description?: string;
+    isPublic?: boolean;
+    isDiscoverable?: boolean;
+    subjects?: string[];
+  };
 }
 
 interface TeamMember {
@@ -43,25 +50,35 @@ const availableLanguages = [
   { code: "ja", name: "Japanese" },
 ];
 
-export function TeamSettingsModal({ open, onOpenChange }: TeamSettingsModalProps) {
+export function TeamSettingsModal({ open, onOpenChange, team }: TeamSettingsModalProps) {
   const [activeTab, setActiveTab] = useState("general");
   const [saving, setSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   // General settings
-  const [teamName, setTeamName] = useState("TechVentures Studio");
-  const [description, setDescription] = useState("A forward-thinking startup building next-gen AI tools");
-  const [website, setWebsite] = useState("https://techventures.io");
+  const [teamName, setTeamName] = useState(team?.name ?? "");
+  const [description, setDescription] = useState(team?.description ?? "");
+  const [website, setWebsite] = useState("");
 
   // Members
   const [members, setMembers] = useState(mockMembers);
 
   // Languages
-  const [teamLanguages, setTeamLanguages] = useState(["en", "ar"]);
+  const [teamLanguages, setTeamLanguages] = useState<string[]>(
+    Array.isArray(team?.subjects) && team?.subjects.length > 0 ? team.subjects : ["en", "ar"]
+  );
 
   // Visibility
-  const [isPublic, setIsPublic] = useState(true);
-  const [allowJoinRequests, setAllowJoinRequests] = useState(true);
+  const [isPublic, setIsPublic] = useState(Boolean(team?.isPublic ?? true));
+  const [allowJoinRequests, setAllowJoinRequests] = useState(Boolean(team?.isDiscoverable ?? true));
+
+  useEffect(() => {
+    setTeamName(team?.name ?? "");
+    setDescription(team?.description ?? "");
+    setIsPublic(Boolean(team?.isPublic ?? true));
+    setAllowJoinRequests(Boolean(team?.isDiscoverable ?? true));
+    setTeamLanguages(Array.isArray(team?.subjects) && team?.subjects.length > 0 ? team.subjects : ["en", "ar"]);
+  }, [team]);
 
   // Auto-save effect
   useEffect(() => {

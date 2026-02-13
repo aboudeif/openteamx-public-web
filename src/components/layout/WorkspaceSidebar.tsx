@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { ApiTeamService } from "@/services/api/ApiTeamService";
 import {
   Earth,
   UserSquare,
@@ -29,10 +31,27 @@ interface Team {
   color: string;
 }
 
-const teams: Team[] = [
-  { id: "team-1", name: "TechVentures", logo: "TV", color: "from-primary to-primary/70" },
-  { id: "team-2", name: "DesignCo", logo: "DC", color: "from-success to-success/70" },
+interface ActiveTeam {
+  id: string;
+  name: string;
+}
+
+const teamService = new ApiTeamService();
+const TEAM_COLORS = [
+  "from-primary to-primary/70",
+  "from-success to-success/70",
+  "from-warning to-warning/70",
+  "from-sky-500 to-cyan-400",
+  "from-pink-500 to-rose-400",
 ];
+
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 
 const level0Items = [
   { id: "discover", label: "Discover", icon: Telescope, path: "/" },
@@ -60,6 +79,19 @@ export function WorkspaceSidebar() {
   const [hoveredItem, setHoveredItem] = useState<string | null>(null);
   const [expandedTeam, setExpandedTeam] = useState<string | null>(null);
   const location = useLocation();
+  const { data: myTeams = [] } = useQuery<ActiveTeam[]>({
+    queryKey: ["sidebar-my-teams"],
+    queryFn: () => teamService.getMyActiveTeams(),
+  });
+
+  const teams: Team[] = Array.isArray(myTeams)
+    ? myTeams.map((team, index) => ({
+        id: team.id,
+        name: team.name,
+        logo: getInitials(team.name),
+        color: TEAM_COLORS[index % TEAM_COLORS.length],
+      }))
+    : [];
 
   const isActive = (path: string) => {
     if (path === "/overview") return location.pathname === "/overview";
@@ -68,7 +100,8 @@ export function WorkspaceSidebar() {
   };
 
   const isTeamRoute = (teamId: string) => {
-    return location.pathname.includes(`/${teamId}`);
+    const [currentTeamId] = location.pathname.split("/").filter(Boolean);
+    return currentTeamId === teamId;
   };
 
   const isDriveSubRoute = () => {

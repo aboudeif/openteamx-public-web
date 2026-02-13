@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ const driveFiles: DriveFile[] = [
 const emojis = ["😀", "😂", "😍", "🤔", "👍", "👎", "🎉", "🔥", "💯", "❤️", "✨", "🚀", "💡", "⭐", "🙌", "👏"];
 
 export default function TeamChat() {
+  const { teamId = "" } = useParams<{ teamId: string }>();
   const [selectedWorkspace, setSelectedWorkspace] = useState("general");
   const [workspaceList, setWorkspaceList] = useState<ChatWorkspace[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -74,18 +76,39 @@ export default function TeamChat() {
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const [ws, msgs, members] = await Promise.all([
-        chatService.getWorkspaces("team-1"),
-        chatService.getMessages(selectedWorkspace),
-        chatService.getTeamMembers("team-1")
+    if (!teamId) {
+      return;
+    }
+
+    const fetchWorkspacesAndMembers = async () => {
+      const [ws, members] = await Promise.all([
+        chatService.getWorkspaces(teamId),
+        chatService.getTeamMembers(teamId),
       ]);
       setWorkspaceList(ws);
-      setMessages(msgs);
       setTeamMembers(members);
+
+      if (ws.length > 0) {
+        setSelectedWorkspace((current) =>
+          ws.some((workspace) => workspace.id === current) ? current : ws[0].id
+        );
+      }
     };
-    fetchData();
-  }, []); // Only fetch initially for now, in real app dependency might include selectedWorkspace
+    void fetchWorkspacesAndMembers();
+  }, [teamId]);
+
+  useEffect(() => {
+    if (!teamId || !selectedWorkspace) {
+      return;
+    }
+
+    const fetchMessages = async () => {
+      const msgs = await chatService.getMessages(selectedWorkspace);
+      setMessages(msgs);
+    };
+
+    void fetchMessages();
+  }, [teamId, selectedWorkspace]);
 
   // Modals
   const [showAddWorkspace, setShowAddWorkspace] = useState(false);

@@ -14,19 +14,6 @@ import {
   NotepadText
 } from "lucide-react";
 
-interface Team {
-  id: string;
-  name: string;
-  logo: string;
-  color: string;
-}
-
-const teams: Team[] = [
-  { id: "team-1", name: "TechVentures", logo: "TV", color: "from-primary to-primary/70" },
-  { id: "team-2", name: "DesignCo", logo: "DC", color: "from-success to-success/70" },
-];
-
-
 const teamNavItems = [
   { id : "team", label: "Team", icon: UserSquare, path: "/team" },
   { id: "mail", label: "Mail", icon: Mail, path: "/mail" },
@@ -45,19 +32,25 @@ const teamNavItems = [
   
 export function AppHorizontalnavbar() {
   const location = useLocation();
+  const pathSegments = location.pathname.split("/").filter(Boolean);
+  const currentTeamId = pathSegments.length >= 2 ? pathSegments[0] : null;
 
   const isActive = (path: string) => {
     if (path === "/") return location.pathname === "/";
     return location.pathname.endsWith(path);
   };
 
-  const checkOptionalItem = (item) =>
+  const checkOptionalItem = (item: { path: string }) =>
     (item.path === "/drive/editor" && !isActive(item.path)) || 
     (item.path === "/drive/spreadsheet" && !isActive(item.path)) ||
     (item.path === "/requests" && !isActive(item.path)) ||
     (item.path === "/notes" && !isActive(item.path)) ||
     (item.path === "/meetings" && !isActive(item.path)) ||
     (item.path === "/activities" && !isActive(item.path))
+
+  if (!currentTeamId) {
+    return null;
+  }
   
 
   return (
@@ -77,7 +70,7 @@ export function AppHorizontalnavbar() {
           !checkOptionalItem(item) &&
           <NavLink
             key={item.path}
-            to={`/${teams[1].id}${item.path}`}
+            to={`/${currentTeamId}${item.path}`}
             className={cn(
               "hnav-item",
               isActive(item.path) && "hnav-item-active"

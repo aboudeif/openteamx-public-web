@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { PageHeader } from "@/components/layout/PageHeader";
 import { ActivityWidget } from "@/features/team-workspace/components/ActivityWidget";
 import { CalendarWidget } from "@/features/meetings/components/CalendarWidget";
 import { MeetingsWidget } from "@/features/meetings/components/MeetingsWidget";
@@ -13,43 +14,123 @@ import { JoinRequestsWidget } from "@/features/team-workspace/components/JoinReq
 import { TeamSettingsModal } from "@/features/team-workspace/components/TeamSettingsModal";
 import { Button } from "@/components/ui/button";
 import { Settings, Users, Calendar, Tag, MapPin } from "lucide-react";
+import { useTeamDetails } from "@/hooks/useTeams";
+import { ApiTeamService } from "@/services/api/ApiTeamService";
+import type { Team } from "@/shared/types";
+import { toast } from "sonner";
+
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
+const teamService = new ApiTeamService();
 
 export default function TeamHome() {
   const [showSettings, setShowSettings] = useState(false);
-  const isTeamLeader = true; // Mock: would come from auth context
+  const navigate = useNavigate();
+  const redirectedRef = useRef(false);
+  const { teamId = "" } = useParams<{ teamId: string }>();
+  const { data: myTeams = [], isLoading: myTeamsLoading } = useQuery<Team[]>({
+    queryKey: ["home-my-teams"],
+    queryFn: () => teamService.getMyActiveTeams(),
+    enabled: Boolean(teamId),
+  });
+
+  const resolvedTeamId = useMemo(() => {
+    if (!teamId) {
+      return "";
+    }
+
+    const teamMatch = Array.isArray(myTeams)
+      ? myTeams.find((item) => item.id === teamId || item.slug === teamId)
+      : undefined;
+
+    return teamMatch?.id ?? teamId;
+  }, [teamId, myTeams]);
+
+  const { data: team, isLoading, isError, error } = useTeamDetails(resolvedTeamId);
+
+  useEffect(() => {
+    if (!teamId && !redirectedRef.current) {
+      redirectedRef.current = true;
+      toast.error("Team not found");
+      navigate("/myteams", { replace: true });
+      return;
+    }
+
+    if (isError && !redirectedRef.current && !myTeamsLoading) {
+      redirectedRef.current = true;
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Team not found or you don't have access.";
+      toast.error(message);
+      navigate("/myteams", { replace: true });
+    }
+  }, [teamId, isError, error, myTeamsLoading, navigate]);
+
+  useEffect(() => {
+    if (team?.id && teamId && teamId !== team.id) {
+      navigate(`/${team.id}/team`, { replace: true });
+    }
+  }, [team?.id, teamId, navigate]);
+
+  const isTeamLeader = team?.currentUserRole === "LEADER";
+  const teamName = team?.name || "Team";
+  const teamInitials = getInitials(teamName);
+  const subjects = useMemo(() => (Array.isArray(team?.subjects) ? team.subjects : []), [team?.subjects]);
+
+  const createdAt =
+    team?.createdAt && !Number.isNaN(new Date(team.createdAt as unknown as string).getTime())
+      ? new Date(team.createdAt as unknown as string).toLocaleDateString()
+      : "Unknown";
+
+  if (!teamId || isError) {
+    return null;
+  }
 
   return (
     <MainLayout>
       <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+        {isLoading || myTeamsLoading ? (
+          <div className="mb-6 rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground">
+            Loading team data...
+          </div>
+        ) : null}
+
         {/* Team Header */}
         <div className="mb-8">
           <div className="flex items-start gap-4 mb-4">
             <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center text-2xl font-bold text-primary-foreground">
-              TV
+              {teamInitials || "T"}
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-semibold text-foreground">TechVentures Studio</h1>
+                <h1 className="text-2xl font-semibold text-foreground">{teamName}</h1>
                 <span className="status-badge status-hiring">
                   <span className="w-1.5 h-1.5 rounded-full bg-warning" />
-                  Hiring Now
+                  {team?.status || "ACTIVE"}
                 </span>
               </div>
               <p className="text-muted-foreground mb-3">
-                A forward-thinking startup building next-gen AI tools for productivity and automation.
+                {team?.description || "No description provided."}
               </p>
               <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">
                   <Users className="w-4 h-4" />
-                  12 members
+                  {team?.memberCount ?? 0} members
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <Calendar className="w-4 h-4" />
-                  Created 2 years ago
+                  Created {createdAt}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <MapPin className="w-4 h-4" />
-                  San Francisco, USA
+                  Team workspace
                 </span>
               </div>
             </div>
@@ -61,7 +142,7 @@ export default function TeamHome() {
 
           {/* Tags */}
           <div className="flex flex-wrap gap-2">
-            {["React", "AI/ML", "TypeScript", "Node.js", "Python"].map((tag) => (
+            {subjects.map((tag) => (
               <span
                 key={tag}
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-secondary text-sm font-medium text-secondary-foreground"
@@ -70,6 +151,9 @@ export default function TeamHome() {
                 {tag}
               </span>
             ))}
+            {!subjects.length ? (
+              <span className="text-sm text-muted-foreground">No subjects assigned.</span>
+            ) : null}
           </div>
         </div>
 
@@ -83,11 +167,21 @@ export default function TeamHome() {
           <TasksWidget />
           <MeetingNotesWidget />
           <DriveWidget />
-          {isTeamLeader && <JoinRequestsWidget />}
+          {isTeamLeader ? <JoinRequestsWidget /> : null}
         </div>
       </div>
 
-      <TeamSettingsModal open={showSettings} onOpenChange={setShowSettings} />
+      <TeamSettingsModal
+        open={showSettings}
+        onOpenChange={setShowSettings}
+        team={{
+          name: team?.name,
+          description: team?.description,
+          isPublic: team?.isPublic,
+          isDiscoverable: team?.isDiscoverable,
+          subjects: Array.isArray(team?.subjects) ? team.subjects : [],
+        }}
+      />
     </MainLayout>
   );
 }

@@ -13,6 +13,8 @@ import { teamService } from "@/services";
 import { filterGroups } from "@/data/teams";
 import { Team } from "@/shared/types";
 
+type TeamWithOptionalTags = Team & { tags?: string[] };
+
 function extractTeams(payload: unknown): Team[] {
   if (Array.isArray(payload)) {
     return payload as Team[];
@@ -118,7 +120,7 @@ export default function DiscoverTeams() {
   };
 
   const handleViewTeam = (teamId: string) => {
-    navigate(`${teamId}/team`);
+    navigate(`/${teamId}/team`);
   };
 
   // Filter teams based on search and filters
@@ -126,10 +128,10 @@ export default function DiscoverTeams() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       const description = typeof team.description === "string" ? team.description : "";
-      const tags = Array.isArray((team as any).tags)
-        ? (team as any).tags
-        : Array.isArray((team as any).subjects)
-          ? (team as any).subjects
+      const tags = Array.isArray((team as TeamWithOptionalTags).tags)
+        ? (team as TeamWithOptionalTags).tags
+        : Array.isArray(team.subjects)
+          ? team.subjects
           : [];
       const matchesSearch =
         team.name.toLowerCase().includes(query) ||

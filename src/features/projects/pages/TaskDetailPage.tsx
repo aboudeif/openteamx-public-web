@@ -200,7 +200,7 @@ export default function TaskDetail() {
         <div className="flex items-center gap-2 px-6 py-3 border-b border-border bg-card text-sm">
           
           <button
-            onClick={() => navigate(`/${taskData.team.id}/projects`)}
+            onClick={() => navigate(`/${teamId ?? taskData.team.id}/projects`)}
             className="text-muted-foreground hover:text-foreground transition-colors"
           >
             <span className=" bg-sidebar-accent text-sidebar-foreground rounded px-2 py-1">{taskData.project.name}</span><span className="text-sm ms-3"> Projects </span>

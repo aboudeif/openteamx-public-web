@@ -1,38 +1,24 @@
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { WidgetCard } from "@/components/shared/WidgetCard";
 import { HardDrive, FileText, FileSpreadsheet, Image, Link, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
+import { driveService } from "@/services";
 
-const files = [
-  {
-    id: 1,
-    name: "Q4 Financial Report.xlsx",
-    type: "spreadsheet",
-    modifiedBy: "Mike Johnson",
-    modifiedAt: "2 hours ago",
-  },
-  {
-    id: 2,
-    name: "Brand Guidelines v2.pdf",
-    type: "document",
-    modifiedBy: "Sarah Chen",
-    modifiedAt: "Yesterday",
-  },
-  {
-    id: 3,
-    name: "Product Mockups",
-    type: "image",
-    modifiedBy: "Alex Kim",
-    modifiedAt: "Yesterday",
-  },
-  {
-    id: 4,
-    name: "API Documentation",
-    type: "link",
-    modifiedBy: "Emily Davis",
-    modifiedAt: "2 days ago",
-  },
-];
+type FileItem = {
+  id: string;
+  name: string;
+  type?: string;
+  mimeType?: string;
+  modifiedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  modifiedBy?: string;
+  uploadedBy?: {
+    name?: string;
+  };
+};
 
 const fileIcons = {
   document: FileText,
@@ -48,45 +34,84 @@ const fileColors = {
   link: "bg-primary/10 text-primary",
 };
 
+function inferType(file: FileItem) {
+  const explicitType = (file.type || "").toLowerCase();
+  if (explicitType) {
+    return explicitType;
+  }
+
+  const mime = (file.mimeType || "").toLowerCase();
+  if (mime.includes("sheet") || mime.includes("excel") || file.name.endsWith(".xlsx")) {
+    return "spreadsheet";
+  }
+  if (mime.includes("image/")) {
+    return "image";
+  }
+  if (mime.includes("pdf") || mime.includes("text") || file.name.endsWith(".docx")) {
+    return "document";
+  }
+  if (mime.includes("url")) {
+    return "link";
+  }
+  return "document";
+}
+
 export function DriveWidget() {
   const navigate = useNavigate();
-  const team = {id: 'team-1'};
+  const { teamId = "" } = useParams();
+  const { data: rawFiles = [], isLoading } = useQuery<FileItem[]>({
+    queryKey: ["team-drive-widget", teamId],
+    queryFn: async () => {
+      const response = await driveService.getFiles(teamId);
+      return Array.isArray(response) ? (response as FileItem[]) : [];
+    },
+    enabled: Boolean(teamId),
+  });
+
+  const files = useMemo(() => rawFiles.slice(0, 4), [rawFiles]);
   
   return (
     <WidgetCard 
     title="Recent Files" 
     icon={HardDrive} 
     action="Open Drive"
-    onAction={() => navigate(`/${team.id}/drive`)}
+    onAction={() => navigate(`/${teamId}/drive`)}
     >
-      <div className="space-y-2">
-        {files.map((file) => {
-          const Icon = fileIcons[file.type as keyof typeof fileIcons] || FileText;
-          const colorClass = fileColors[file.type as keyof typeof fileColors] || "bg-muted text-muted-foreground";
+      {isLoading ? (
+        <p className="text-sm text-muted-foreground">Loading files...</p>
+      ) : files.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No recent files.</p>
+      ) : (
+        <div className="space-y-2">
+          {files.map((file) => {
+            const normalizedType = inferType(file);
+            const Icon = fileIcons[normalizedType as keyof typeof fileIcons] || FileText;
+            const colorClass = fileColors[normalizedType as keyof typeof fileColors] || "bg-muted text-muted-foreground";
+            const timestamp = file.modifiedAt || file.updatedAt || file.createdAt;
 
-          return (
-            <div
-              key={file.id}
-              className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
-            >
-              <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", colorClass)}>
-                <Icon className="w-4 h-4" />
+            return (
+              <div
+                key={file.id}
+                className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer group"
+              >
+                <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", colorClass)}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground line-clamp-1">{file.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {file.modifiedBy || file.uploadedBy?.name || "Team member"}
+                    {timestamp ? ` · ${new Date(timestamp).toLocaleString()}` : ""}
+                  </p>
+                </div>
+                <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground line-clamp-1">{file.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {file.modifiedBy} · {file.modifiedAt}
-                </p>
-              </div>
-              <button className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </WidgetCard>
   );
 }
-
-

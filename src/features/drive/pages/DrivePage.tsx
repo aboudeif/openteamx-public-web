@@ -64,7 +64,7 @@ const tabs = [
 ];
 
 export default function TeamDrive() {
-  const { teamId = "team-1" } = useParams();
+  const { teamId = "" } = useParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
@@ -77,6 +77,10 @@ export default function TeamDrive() {
   const [displayItems, setDisplayItems] = useState<DriveItem[]>([]);
 
   useEffect(() => {
+    if (!teamId) {
+      return;
+    }
+
     const fetchFiles = async () => {
       const folderId = currentPath.length > 0 ? currentPath[currentPath.length - 1] : undefined;
       const items = await driveService.getFiles(teamId, folderId);

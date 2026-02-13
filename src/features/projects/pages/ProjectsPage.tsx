@@ -140,7 +140,7 @@ function TaskRow({ task, level = 0, teamId, onClickDetail }: { task: Task; level
 }
 
 export default function TeamProjects() {
-  const { teamId = "team-1" } = useParams();
+  const { teamId = "" } = useParams();
   const navigate = useNavigate();
   const [projectList, setProjectList] = useState<Project[]>([]);
   const [expandedProjects, setExpandedProjects] = useState<string[]>(["1"]);
@@ -151,6 +151,10 @@ export default function TeamProjects() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!teamId) {
+      return;
+    }
+
     const fetchProjects = async () => {
       const data = await projectService.getProjects(teamId);
       setProjectList(data);

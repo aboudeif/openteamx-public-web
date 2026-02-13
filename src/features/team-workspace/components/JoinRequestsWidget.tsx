@@ -1,9 +1,9 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { WidgetCard } from "@/components/shared/WidgetCard";
 import { UserPlus, Check, X, Video, ChevronRight } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -12,30 +12,98 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ApiTeamService } from "@/services/api/ApiTeamService";
 
 interface JoinRequest {
   id: string;
   name: string;
   initials: string;
   role: string;
-  appliedAt: string;
+  appliedAt?: string;
 }
 
-const mockRequests: JoinRequest[] = [
-  { id: "1", name: "Ahmed Hassan", initials: "AH", role: "Frontend Developer", appliedAt: "2 hours ago" },
-  { id: "2", name: "Sara Mohamed", initials: "SM", role: "UI/UX Designer", appliedAt: "5 hours ago" },
-  { id: "3", name: "Omar Ali", initials: "OA", role: "Backend Developer", appliedAt: "1 day ago" },
-  { id: "4", name: "Layla Ibrahim", initials: "LI", role: "Product Manager", appliedAt: "2 days ago" },
-  { id: "5", name: "Youssef Karim", initials: "YK", role: "DevOps Engineer", appliedAt: "3 days ago" },
-];
+type JoinRequestPayload = {
+  id?: string;
+  role?: string;
+  requestedRole?: string;
+  name?: string;
+  createdAt?: string;
+  userName?: string;
+  user?: {
+    name?: string;
+  };
+};
+
+const teamService = new ApiTeamService();
+
+function toInitials(name: string): string {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function normalizeJoinRequests(payload: unknown): JoinRequest[] {
+  const list = Array.isArray(payload)
+    ? (payload as JoinRequestPayload[])
+    : payload && typeof payload === "object" && Array.isArray((payload as { items?: unknown }).items)
+      ? ((payload as { items: JoinRequestPayload[] }).items ?? [])
+      : [];
+
+  return list
+    .filter((item) => Boolean(item?.id))
+    .map((item) => {
+      const name = item.name || item.userName || item.user?.name || "Candidate";
+      const appliedAt = item.createdAt ? new Date(item.createdAt).toLocaleString() : undefined;
+
+      return {
+        id: item.id as string,
+        name,
+        initials: toInitials(name) || "U",
+        role: item.role || item.requestedRole || "Team Member",
+        appliedAt,
+      };
+    });
+}
 
 export function JoinRequestsWidget() {
-  const { teamId = "team-1" } = useParams();
+  const { teamId = "" } = useParams();
   const navigate = useNavigate();
-  const [requests, setRequests] = useState(mockRequests.slice(0, 5));
+  const queryClient = useQueryClient();
+  const [requests, setRequests] = useState<JoinRequest[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<JoinRequest | null>(null);
   const [meetingLink, setMeetingLink] = useState("https://meet.google.com/abc-xyz-123");
+
+  const { isLoading } = useQuery<JoinRequest[]>({
+    queryKey: ["team-join-requests-widget", teamId],
+    queryFn: async () => {
+      const response = await teamService.getJoinRequests(teamId);
+      const normalized = normalizeJoinRequests(response).slice(0, 5);
+      setRequests(normalized);
+      return normalized;
+    },
+    enabled: Boolean(teamId),
+    retry: false,
+  });
+
+  const { mutate: acceptRequest } = useMutation({
+    mutationFn: (requestId: string) => teamService.acceptJoinRequest(teamId, requestId),
+    onSuccess: (_response, requestId) => {
+      setRequests((prev) => prev.filter((request) => request.id !== requestId));
+      queryClient.invalidateQueries({ queryKey: ["team-join-requests-widget", teamId] });
+    },
+  });
+
+  const { mutate: rejectRequest } = useMutation({
+    mutationFn: (requestId: string) => teamService.rejectJoinRequest(teamId, requestId),
+    onSuccess: (_response, requestId) => {
+      setRequests((prev) => prev.filter((request) => request.id !== requestId));
+      queryClient.invalidateQueries({ queryKey: ["team-join-requests-widget", teamId] });
+    },
+  });
 
   const handleInvite = (request: JoinRequest) => {
     setSelectedRequest(request);
@@ -43,11 +111,19 @@ export function JoinRequestsWidget() {
   };
 
   const handleAccept = (id: string) => {
-    setRequests(prev => prev.filter(r => r.id !== id));
+    acceptRequest(id, {
+      onError: () => {
+        setRequests((prev) => prev.filter((request) => request.id !== id));
+      },
+    });
   };
 
   const handleReject = (id: string) => {
-    setRequests(prev => prev.filter(r => r.id !== id));
+    rejectRequest(id, {
+      onError: () => {
+        setRequests((prev) => prev.filter((request) => request.id !== id));
+      },
+    });
   };
 
   return (
@@ -68,7 +144,9 @@ export function JoinRequestsWidget() {
         }
       >
         <div className="space-y-2 max-h-[280px] overflow-y-auto scrollbar-thin">
-          {requests.length === 0 ? (
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground py-4">Loading requests...</p>
+          ) : requests.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-6 text-center">
               <UserPlus className="w-8 h-8 text-muted-foreground/50 mb-2" />
               <p className="text-sm text-muted-foreground">No pending requests</p>
@@ -84,7 +162,10 @@ export function JoinRequestsWidget() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-foreground truncate">{request.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{request.role}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {request.role}
+                    {request.appliedAt ? ` · ${request.appliedAt}` : ""}
+                  </p>
                 </div>
                 <div className="flex items-center gap-1">
                   <button
