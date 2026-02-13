@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type MouseEvent, type PointerEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,8 @@ import { ManageAccessModal } from "@/features/drive/components/ManageAccessModal
 import { driveService } from "@/services";
 import { DriveItem } from "@/shared/types";
 import { DriveItemType } from "@/shared/enums";
+import { toast } from "sonner";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 const fileIcons = {
   [DriveItemType.Folder]: Folder,
@@ -63,6 +65,19 @@ const tabs = [
   { id: "shared", label: "Shared with me" },
 ];
 
+const ITEM_COLOR_CHOICES = ["#f97316", "#0ea5e9", "#22c55e", "#eab308", "#ef4444"];
+
+const resolveApiBaseUrl = () => {
+  const raw = import.meta.env.VITE_API_URL?.trim();
+  if (!raw) return "/api/v1";
+  const base = raw.replace(/\/+$/, "");
+  if (base.endsWith("/api/v1")) return base;
+  if (base.endsWith("/api")) return `${base}/v1`;
+  if (base.startsWith("http://") || base.startsWith("https://")) return `${base}/api/v1`;
+  if (base === "/api") return "/api/v1";
+  return base;
+};
+
 export default function TeamDrive() {
   const { teamId = "" } = useParams();
   const navigate = useNavigate();
@@ -75,6 +90,11 @@ export default function TeamDrive() {
   const [showManageAccess, setShowManageAccess] = useState(false);
   const [selectedItem, setSelectedItem] = useState<DriveItem | null>(null);
   const [displayItems, setDisplayItems] = useState<DriveItem[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [renameTarget, setRenameTarget] = useState<DriveItem | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [colorTarget, setColorTarget] = useState<DriveItem | null>(null);
+  const [selectedColor, setSelectedColor] = useState<string>("");
 
   useEffect(() => {
     if (!teamId) {
@@ -124,7 +144,7 @@ export default function TeamDrive() {
       }
 
       if (searchQuery) {
-        filteredItems = filteredItems.filter(item => 
+        filteredItems = filteredItems.filter((item) =>
           item.name.toLowerCase().includes(searchQuery.toLowerCase())
         );
       }
@@ -133,7 +153,7 @@ export default function TeamDrive() {
     };
     
     fetchFiles();
-  }, [teamId, currentPath, activeTab, searchQuery]);
+  }, [teamId, currentPath, activeTab, searchQuery, refreshKey]);
 
   const toggleSelect = (id: string) => {
     setSelectedItems((prev) =>
@@ -181,6 +201,148 @@ export default function TeamDrive() {
   const handleShare = (item: DriveItem) => {
     setSelectedItem(item);
     setShowManageAccess(true);
+  };
+
+  const openRenamePanel = (item: DriveItem) => {
+    setRenameTarget(item);
+    setRenameValue(item.name);
+  };
+
+  const submitRename = async () => {
+    if (!renameTarget || !teamId) return;
+    const nextName = renameValue.trim();
+    if (!nextName || nextName === renameTarget.name) {
+      setRenameTarget(null);
+      return;
+    }
+
+    const driveServiceWithRename = driveService as typeof driveService & {
+      renameFile?: (teamId: string, fileId: string, name: string) => Promise<void>;
+    };
+    if (!driveServiceWithRename.renameFile) {
+      toast.error("Rename API is unavailable");
+      return;
+    }
+
+    try {
+      await driveServiceWithRename.renameFile(teamId, renameTarget.id, nextName);
+      setRenameTarget(null);
+      setRefreshKey((prev) => prev + 1);
+      toast.success("Renamed");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to rename");
+    }
+  };
+
+  const openColorPanel = (item: DriveItem) => {
+    setColorTarget(item);
+    setSelectedColor(item.color || ITEM_COLOR_CHOICES[0]);
+  };
+
+  const submitColor = async () => {
+    if (!colorTarget || !teamId || !selectedColor) return;
+    const driveWithPreferences = driveService as typeof driveService & {
+      updateFilePreferences?: (
+        teamId: string,
+        fileId: string,
+        preferences: { pinned?: boolean; color?: string },
+      ) => Promise<{ fileId: string; pinned: boolean; color: string | null }>;
+    };
+
+    if (!driveWithPreferences.updateFilePreferences) {
+      toast.error("Color API is unavailable");
+      return;
+    }
+
+    try {
+      await driveWithPreferences.updateFilePreferences(teamId, colorTarget.id, { color: selectedColor });
+      setColorTarget(null);
+      setRefreshKey((prev) => prev + 1);
+      toast.success("Color updated");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update color");
+    }
+  };
+
+  const handleTogglePin = async (item: DriveItem) => {
+    if (!teamId) return;
+    const driveWithPreferences = driveService as typeof driveService & {
+      updateFilePreferences?: (
+        teamId: string,
+        fileId: string,
+        preferences: { pinned?: boolean; color?: string },
+      ) => Promise<{ fileId: string; pinned: boolean; color: string | null }>;
+    };
+
+    if (!driveWithPreferences.updateFilePreferences) {
+      toast.error("Pin API is unavailable");
+      return;
+    }
+
+    try {
+      await driveWithPreferences.updateFilePreferences(teamId, item.id, { pinned: !item.pinned });
+      setRefreshKey((prev) => prev + 1);
+      toast.success(item.pinned ? "Unpinned" : "Pinned");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update pin");
+    }
+  };
+
+  const handleDownload = async (item: DriveItem) => {
+    if (!teamId) return;
+    if (item.type === DriveItemType.Link && item.url) {
+      window.open(item.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    try {
+      const apiBase = resolveApiBaseUrl();
+      const streamUrl = `${apiBase}/teams/${teamId}/drive/files/${item.id}/download`;
+      const response = await fetch(streamUrl, { credentials: "include" });
+      if (!response.ok) {
+        throw new Error("Failed to download file");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const filenameMatch = disposition.match(/filename=\"?([^"]+)\"?/i);
+      const filename = filenameMatch?.[1] || item.name || "download";
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+      toast.success("Download started");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Download failed");
+    }
+  };
+
+  const handleDelete = async (item: DriveItem) => {
+    const confirmed = window.confirm(`Delete "${item.name}"?`);
+    if (!confirmed) return;
+
+    try {
+      await driveService.deleteItem(item.id, teamId);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete");
+      return;
+    }
+
+    setSelectedItems((prev) => prev.filter((id) => id !== item.id));
+    setRefreshKey((prev) => prev + 1);
+    toast.success("Deleted");
+  };
+
+  const stopClickPropagation = (event: MouseEvent<HTMLElement>) => {
+    event.stopPropagation();
+  };
+
+  const stopPointerPropagation = (event: PointerEvent<HTMLElement>) => {
+    event.stopPropagation();
   };
 
   return (
@@ -323,7 +485,10 @@ export default function TeamDrive() {
                     <div className="w-6 flex items-center">
                       {item.pinned && <Pin className="w-3 h-3 text-warning" />}
                     </div>
-                    <div className={cn("w-12 h-12 rounded-xl bg-muted flex items-center justify-center", colorClass)}>
+                    <div
+                      className={cn("w-12 h-12 rounded-xl bg-muted flex items-center justify-center", colorClass)}
+                      style={item.color ? { color: item.color } : undefined}
+                    >
                       <Icon className="w-6 h-6" />
                     </div>
                     <div className="flex-1 min-w-0 flex items-center gap-2">
@@ -335,11 +500,15 @@ export default function TeamDrive() {
                     <span className="w-20 text-sm text-muted-foreground">{item.size || "—"}</span>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <button className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
+                        <button
+                          className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={stopClickPropagation}
+                          onPointerDown={stopPointerPropagation}
+                        >
                           <MoreHorizontal className="w-4 h-4" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
+                      <DropdownMenuContent align="end" onClick={stopClickPropagation}>
                         {item.type === DriveItemType.Link && item.url && (
                           <DropdownMenuItem onClick={() => window.open(item.url, "_blank")}>
                             <Link className="w-4 h-4 mr-2" />
@@ -350,26 +519,24 @@ export default function TeamDrive() {
                           <Share2 className="w-4 h-4 mr-2" />
                           Share
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openRenamePanel(item)}>
                           <Pencil className="w-4 h-4 mr-2" />
                           Rename
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openColorPanel(item)}>
                           <Palette className="w-4 h-4 mr-2" />
                           Change Color
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => void handleTogglePin(item)}>
                           <Pin className="w-4 h-4 mr-2" />
                           {item.pinned ? "Unpin" : "Pin"}
                         </DropdownMenuItem>
-                        {item.type !== DriveItemType.Link && (
-                          <DropdownMenuItem>
-                            <Download className="w-4 h-4 mr-2" />
-                            Download
-                          </DropdownMenuItem>
-                        )}
+                        <DropdownMenuItem onClick={() => void handleDownload(item)}>
+                          <Download className="w-4 h-4 mr-2" />
+                          Download
+                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem className="text-destructive">
+                        <DropdownMenuItem className="text-destructive" onClick={() => void handleDelete(item)}>
                           <Trash2 className="w-4 h-4 mr-2" />
                           Delete
                         </DropdownMenuItem>
@@ -404,32 +571,53 @@ export default function TeamDrive() {
                     onClick={() => handleOpenItem(item)}
                   >
                     <div className="flex items-center justify-between mb-3">
-                      <div className={cn("w-14 h-14 rounded-xl bg-muted flex items-center justify-center", colorClass)}>
+                      <div
+                        className={cn("w-14 h-14 rounded-xl bg-muted flex items-center justify-center", colorClass)}
+                        style={item.color ? { color: item.color } : undefined}
+                      >
                         <Icon className="w-7 h-7" />
                       </div>
                       <div className="flex items-center gap-1">
                         {item.pinned && <Pin className="w-3 h-3 text-warning" />}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <button className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all">
+                            <button
+                              className="p-1 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-muted text-muted-foreground hover:text-foreground transition-all"
+                              onClick={stopClickPropagation}
+                              onPointerDown={stopPointerPropagation}
+                            >
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
                           </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
+                          <DropdownMenuContent align="end" onClick={stopClickPropagation}>
+                            {item.type === DriveItemType.Link && item.url && (
+                              <DropdownMenuItem onClick={() => window.open(item.url, "_blank", "noopener,noreferrer")}>
+                                <Link className="w-4 h-4 mr-2" />
+                                Open Link
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem onClick={() => handleShare(item)}>
                               <Share2 className="w-4 h-4 mr-2" />
                               Share
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openRenamePanel(item)}>
                               <Pencil className="w-4 h-4 mr-2" />
                               Rename
                             </DropdownMenuItem>
-                            <DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openColorPanel(item)}>
                               <Palette className="w-4 h-4 mr-2" />
                               Change Color
                             </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleTogglePin(item)}>
+                              <Pin className="w-4 h-4 mr-2" />
+                              {item.pinned ? "Unpin" : "Pin"}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => void handleDownload(item)}>
+                              <Download className="w-4 h-4 mr-2" />
+                              Download
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive">
+                            <DropdownMenuItem className="text-destructive" onClick={() => void handleDelete(item)}>
                               <Trash2 className="w-4 h-4 mr-2" />
                               Delete
                             </DropdownMenuItem>
@@ -450,10 +638,54 @@ export default function TeamDrive() {
         <ManageAccessModal 
           open={showManageAccess} 
           onOpenChange={setShowManageAccess} 
+          itemId={selectedItem?.id}
           itemName={selectedItem?.name || ""}
           itemType={selectedItem?.type === DriveItemType.Folder ? "folder" : "file"}
           teamId={teamId}
         />
+
+        <Dialog open={!!renameTarget} onOpenChange={(open) => !open && setRenameTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Rename file</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} placeholder="File name" />
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setRenameTarget(null)}>Cancel</Button>
+                <Button onClick={() => void submitRename()}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={!!colorTarget} onOpenChange={(open) => !open && setColorTarget(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Change file color</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="grid grid-cols-5 gap-3">
+                {ITEM_COLOR_CHOICES.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={cn(
+                      "h-10 w-10 rounded-full border-2 transition-all",
+                      selectedColor === color ? "border-foreground scale-105" : "border-transparent",
+                    )}
+                    style={{ backgroundColor: color }}
+                    onClick={() => setSelectedColor(color)}
+                  />
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setColorTarget(null)}>Cancel</Button>
+                <Button onClick={() => void submitColor()} disabled={!selectedColor}>Apply</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </MainLayout>
   );

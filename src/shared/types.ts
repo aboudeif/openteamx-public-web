@@ -70,6 +70,7 @@ export interface DriveItem {
   size?: string;
   pinned?: boolean;
   shared?: boolean;
+  color?: string;
   url?: string; // For link types
 }
 

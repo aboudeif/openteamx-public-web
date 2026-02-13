@@ -92,8 +92,35 @@ export class MockDriveService implements IDriveService {
     return Promise.resolve(newFile);
   }
 
-  async deleteItem(itemId: string): Promise<void> {
+  async deleteItem(itemId: string, teamId?: string): Promise<void> {
     return Promise.resolve();
+  }
+
+  async updateFilePreferences(
+    teamId: string,
+    fileId: string,
+    preferences: { pinned?: boolean; color?: string },
+  ): Promise<{ fileId: string; pinned: boolean; color: string | null }> {
+    return Promise.resolve({
+      fileId,
+      pinned: !!preferences.pinned,
+      color: preferences.color || null,
+    });
+  }
+
+  async manageFileAccess(
+    teamId: string,
+    fileId: string,
+    userAccesses: Array<{ userId: string; level: "view" | "edit" }>,
+  ): Promise<void> {
+    return Promise.resolve();
+  }
+
+  async getFileAccess(
+    teamId: string,
+    fileId: string,
+  ): Promise<Array<{ userId: string; level: "view" | "edit" }>> {
+    return Promise.resolve([]);
   }
 
   async createTextDocument(teamId: string, title: string, content: string, folderId?: string): Promise<DriveItem> {

@@ -16,6 +16,9 @@ type ApiFileResponse = {
   };
   type?: string;
   url?: string;
+  pinned?: boolean;
+  shared?: boolean;
+  color?: string | null;
 };
 
 const toDisplayDate = (value?: string) => {
@@ -69,6 +72,9 @@ const mapFileToDriveItem = (file: ApiFileResponse): DriveItem => ({
   modifiedBy: file.uploadedBy?.name || "Team member",
   size: toDisplaySize(file.size),
   url: file.url,
+  pinned: file.pinned,
+  shared: file.shared,
+  color: file.color ?? undefined,
 });
 
 export class ApiDriveService implements IDriveService {
@@ -99,8 +105,11 @@ export class ApiDriveService implements IDriveService {
     return response.json();
   }
 
-  async deleteItem(itemId: string): Promise<void> {
-    return api.delete(`/files/${itemId}`);
+  async deleteItem(itemId: string, teamId?: string): Promise<void> {
+    if (!teamId) {
+      throw new Error("Team ID is required to delete a file");
+    }
+    return api.delete(`/teams/${teamId}/drive/files/${itemId}`);
   }
 
   async getDriveContents(teamId: string, folderId?: string): Promise<DriveItem[]> {
@@ -124,8 +133,30 @@ export class ApiDriveService implements IDriveService {
     return api.patch(`/teams/${teamId}/drive/files/${fileId}/rename`, { name });
   }
 
-  async manageFileAccess(teamId: string, fileId: string, access: string, members: string[], permissions: string): Promise<void> {
-    return api.put(`/teams/${teamId}/drive/files/${fileId}/access`, { access, members, permissions });
+  async updateFilePreferences(
+    teamId: string,
+    fileId: string,
+    preferences: { pinned?: boolean; color?: string },
+  ): Promise<{ fileId: string; pinned: boolean; color: string | null }> {
+    return api.patch(`/teams/${teamId}/drive/files/${fileId}/preferences`, preferences);
+  }
+
+  async manageFileAccess(
+    teamId: string,
+    fileId: string,
+    userAccesses: Array<{ userId: string; level: "view" | "edit" }>,
+  ): Promise<void> {
+    await api.put(`/teams/${teamId}/drive/files/${fileId}/access`, { userAccesses });
+  }
+
+  async getFileAccess(
+    teamId: string,
+    fileId: string,
+  ): Promise<Array<{ userId: string; level: "view" | "edit" }>> {
+    const response = await api.get<{ fileId: string; access?: Array<{ userId: string; level: "view" | "edit" }> }>(
+      `/teams/${teamId}/drive/files/${fileId}/access`,
+    );
+    return Array.isArray(response?.access) ? response.access : [];
   }
 
   async getDocumentContent(teamId: string, fileId: string): Promise<TextDocumentPayload> {
@@ -143,4 +174,5 @@ export class ApiDriveService implements IDriveService {
   async saveSpreadsheetContent(teamId: string, fileId: string, title: string, cells: any): Promise<void> {
     return api.put(`/teams/${teamId}/drive/spreadsheets/${fileId}`, { title, cells });
   }
+
 }

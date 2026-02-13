@@ -25,10 +25,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiTeamService } from "@/services/api/ApiTeamService";
+import { driveService } from "@/services";
 
 interface ManageAccessModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  itemId?: string;
   itemName: string;
   itemType: "file" | "folder";
   teamId?: string;
@@ -51,13 +53,14 @@ const getInitials = (name: string) =>
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
 
-export function ManageAccessModal({ open, onOpenChange, itemName, itemType, teamId }: ManageAccessModalProps) {
+export function ManageAccessModal({ open, onOpenChange, itemId, itemName, itemType, teamId }: ManageAccessModalProps) {
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [pendingAccess, setPendingAccess] = useState<"view" | "edit">("edit");
   const [linkCopied, setLinkCopied] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamRecipient[]>([]);
   const [sharedWith, setSharedWith] = useState<TeamRecipient[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!open || !teamId) {
@@ -83,7 +86,24 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType, team
           .filter((member) => member.id);
 
         setTeamMembers(normalized);
-        setSharedWith(normalized.slice(0, Math.min(2, normalized.length)));
+
+        const driveWithAccess = driveService as typeof driveService & {
+          getFileAccess?: (
+            teamId: string,
+            fileId: string,
+          ) => Promise<Array<{ userId: string; level: "view" | "edit" }>>;
+        };
+
+        if (itemId && driveWithAccess.getFileAccess) {
+          const accessEntries = await driveWithAccess.getFileAccess(teamId, itemId);
+          const accessMap = new Map(accessEntries.map((entry) => [entry.userId, entry.level]));
+          const shared = normalized
+            .filter((member) => accessMap.has(member.id))
+            .map((member) => ({ ...member, access: accessMap.get(member.id) || "view" }));
+          setSharedWith(shared);
+        } else {
+          setSharedWith([]);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to load team members";
         toast.error(message);
@@ -93,7 +113,7 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType, team
     };
 
     void loadMembers();
-  }, [open, teamId]);
+  }, [open, teamId, itemId]);
 
   const availableMembers = useMemo(
     () => teamMembers.filter((member) => !sharedWith.some((sharedMember) => sharedMember.id === member.id)),
@@ -127,6 +147,41 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType, team
   const removeAccess = (id: string, name: string) => {
     setSharedWith((prev) => prev.filter((member) => member.id !== id));
     toast.success(`Removed ${name}'s access`);
+  };
+
+  const saveAccessChanges = async () => {
+    if (!teamId || !itemId) {
+      onOpenChange(false);
+      return;
+    }
+
+    const driveWithAccess = driveService as typeof driveService & {
+      manageFileAccess?: (
+        teamId: string,
+        fileId: string,
+        userAccesses: Array<{ userId: string; level: "view" | "edit" }>,
+      ) => Promise<void>;
+    };
+
+    if (!driveWithAccess.manageFileAccess) {
+      onOpenChange(false);
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await driveWithAccess.manageFileAccess(
+        teamId,
+        itemId,
+        sharedWith.map((member) => ({ userId: member.id, level: member.access })),
+      );
+      toast.success("Sharing updated");
+      onOpenChange(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update sharing");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -277,7 +332,9 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType, team
               )}
               Copy link
             </Button>
-            <Button onClick={() => onOpenChange(false)}>Done</Button>
+            <Button onClick={() => void saveAccessChanges()} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Done"}
+            </Button>
           </div>
         </div>
       </DialogContent>

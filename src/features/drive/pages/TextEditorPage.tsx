@@ -179,7 +179,6 @@ export default function TextEditor() {
   const runCommand = (command: string, value?: string) => {
     restoreSelection();
     document.execCommand(command, false, value);
-    syncPageHtmlFromDom(activePageIndexRef.current);
     saveCurrentSelection();
   };
 
@@ -190,7 +189,6 @@ export default function TextEditor() {
     if (!succeeded) {
       document.execCommand("formatBlock", false, tag);
     }
-    syncPageHtmlFromDom(activePageIndexRef.current);
     saveCurrentSelection();
   };
 
@@ -216,7 +214,6 @@ export default function TextEditor() {
     const linkHtml = `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:underline;">${escapeHtml(text)}</a>`;
     document.execCommand("insertHTML", false, linkHtml);
 
-    syncPageHtmlFromDom(activePageIndexRef.current);
     saveCurrentSelection();
     setIsLinkPopoverOpen(false);
     setLinkUrl("");
