@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,7 @@ const initialData = [
 ];
 
 export default function SpreadsheetEditor() {
+  const { teamId = "" } = useParams<{ teamId: string }>();
   const [title, setTitle] = useState("Untitled Spreadsheet");
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [data, setData] = useState(initialData);
@@ -175,6 +177,7 @@ export default function SpreadsheetEditor() {
         onOpenChange={setShowAccessModal}
         itemName={title}
         itemType="file"
+        teamId={teamId}
       />
     </MainLayout>
   );

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,7 +7,6 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -16,54 +15,117 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { 
-  Users, 
   Link2, 
-  Copy, 
   Trash2, 
   Check,
-  Globe,
   Lock,
   Eye,
   Edit,
   UserPlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ApiTeamService } from "@/services/api/ApiTeamService";
 
 interface ManageAccessModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   itemName: string;
   itemType: "file" | "folder";
+  teamId?: string;
 }
 
-const sharedWith = [
-  { id: 1, name: "Sarah Chen", email: "sarah@company.com", access: "edit", avatar: "SC" },
-  { id: 2, name: "Mike Johnson", email: "mike@company.com", access: "view", avatar: "MJ" },
-  { id: 3, name: "Emily Davis", email: "emily@company.com", access: "edit", avatar: "ED" },
-];
+type TeamRecipient = {
+  id: string;
+  name: string;
+  avatar: string;
+  access: "view" | "edit";
+};
 
-export function ManageAccessModal({ open, onOpenChange, itemName, itemType }: ManageAccessModalProps) {
-  const [email, setEmail] = useState("");
+const teamService = new ApiTeamService();
+
+const getInitials = (name: string) =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+
+export function ManageAccessModal({ open, onOpenChange, itemName, itemType, teamId }: ManageAccessModalProps) {
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [pendingAccess, setPendingAccess] = useState<"view" | "edit">("edit");
   const [linkCopied, setLinkCopied] = useState(false);
-  const [generalAccess, setGeneralAccess] = useState<"restricted" | "anyone">("restricted");
+  const [teamMembers, setTeamMembers] = useState<TeamRecipient[]>([]);
+  const [sharedWith, setSharedWith] = useState<TeamRecipient[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState(false);
+
+  useEffect(() => {
+    if (!open || !teamId) {
+      return;
+    }
+
+    const loadMembers = async () => {
+      setIsLoadingMembers(true);
+      try {
+        const response = await teamService.getTeamMembers(teamId);
+        const members = Array.isArray(response.members) ? response.members : [];
+        const normalized = members
+          .map((member) => {
+            const id = member.userId || member.user?.id || member.id;
+            const name = member.user?.name || "Unknown member";
+            return {
+              id,
+              name,
+              avatar: getInitials(name),
+              access: "view" as const,
+            };
+          })
+          .filter((member) => member.id);
+
+        setTeamMembers(normalized);
+        setSharedWith(normalized.slice(0, Math.min(2, normalized.length)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load team members";
+        toast.error(message);
+      } finally {
+        setIsLoadingMembers(false);
+      }
+    };
+
+    void loadMembers();
+  }, [open, teamId]);
+
+  const availableMembers = useMemo(
+    () => teamMembers.filter((member) => !sharedWith.some((sharedMember) => sharedMember.id === member.id)),
+    [teamMembers, sharedWith],
+  );
 
   const copyLink = () => {
-    navigator.clipboard.writeText(`https://talenthub.app/drive/${itemType}/share-link`);
+    navigator.clipboard.writeText(`https://talenthub.app/team/${teamId ?? "team"}/drive/${itemType}/share-link`);
     setLinkCopied(true);
-    toast.success("Link copied to clipboard");
+    toast.success("Internal team link copied");
     setTimeout(() => setLinkCopied(false), 2000);
   };
 
   const inviteUser = () => {
-    if (!email.trim()) {
-      toast.error("Please enter an email address");
+    if (!selectedMemberId) {
+      toast.error("Please choose a team member");
       return;
     }
-    toast.success(`Invitation sent to ${email}`);
-    setEmail("");
+
+    const member = teamMembers.find((teamMember) => teamMember.id === selectedMemberId);
+    if (!member) {
+      toast.error("Selected member not found");
+      return;
+    }
+
+    setSharedWith((prev) => [...prev, { ...member, access: pendingAccess }]);
+    toast.success(`Access updated for ${member.name}`);
+    setSelectedMemberId("");
   };
 
-  const removeAccess = (id: number, name: string) => {
+  const removeAccess = (id: string, name: string) => {
+    setSharedWith((prev) => prev.filter((member) => member.id !== id));
     toast.success(`Removed ${name}'s access`);
   };
 
@@ -82,13 +144,21 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType }: Ma
           <div className="space-y-3">
             <label className="text-sm font-medium">Add people</label>
             <div className="flex items-center gap-2">
-              <Input
-                placeholder="Enter email address..."
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="flex-1"
-              />
-              <Select defaultValue="edit">
+              <Select value={selectedMemberId} onValueChange={setSelectedMemberId}>
+                <SelectTrigger className="flex-1">
+                  <SelectValue
+                    placeholder={isLoadingMembers ? "Loading team members..." : "Choose team member"}
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableMembers.map((member) => (
+                    <SelectItem key={member.id} value={member.id}>
+                      {member.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={pendingAccess} onValueChange={(value: "view" | "edit") => setPendingAccess(value)}>
                 <SelectTrigger className="w-28">
                   <SelectValue />
                 </SelectTrigger>
@@ -107,10 +177,11 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType }: Ma
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <Button onClick={inviteUser}>
+              <Button onClick={inviteUser} disabled={!selectedMemberId}>
                 <UserPlus className="w-4 h-4" />
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">Only members of this team can be shared with.</p>
           </div>
 
           {/* People with access */}
@@ -140,11 +211,20 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType }: Ma
                     </div>
                     <div>
                       <p className="text-sm font-medium">{user.name}</p>
-                      <p className="text-xs text-muted-foreground">{user.email}</p>
+                      <p className="text-xs text-muted-foreground">Team member</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Select defaultValue={user.access}>
+                    <Select
+                      value={user.access}
+                      onValueChange={(value: "view" | "edit") =>
+                        setSharedWith((prev) =>
+                          prev.map((member) =>
+                            member.id === user.id ? { ...member, access: value } : member,
+                          ),
+                        )
+                      }
+                    >
                       <SelectTrigger className="w-24 h-8">
                         <SelectValue />
                       </SelectTrigger>
@@ -173,29 +253,13 @@ export function ManageAccessModal({ open, onOpenChange, itemName, itemType }: Ma
             <div className="p-3 rounded-lg border border-border">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  {generalAccess === "restricted" ? (
-                    <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center">
-                      <Lock className="w-4 h-4 text-muted-foreground" />
-                    </div>
-                  ) : (
-                    <div className="w-9 h-9 rounded-full bg-success/10 flex items-center justify-center">
-                      <Globe className="w-4 h-4 text-success" />
-                    </div>
-                  )}
+                  <div className="w-9 h-9 rounded-full bg-muted flex items-center justify-center">
+                    <Lock className="w-4 h-4 text-muted-foreground" />
+                  </div>
                   <div>
-                    <Select value={generalAccess} onValueChange={(v: "restricted" | "anyone") => setGeneralAccess(v)}>
-                      <SelectTrigger className="border-0 p-0 h-auto font-medium focus:ring-0">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="restricted">Restricted</SelectItem>
-                        <SelectItem value="anyone">Anyone with link</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <p className="text-sm font-medium">Restricted to team members</p>
                     <p className="text-xs text-muted-foreground">
-                      {generalAccess === "restricted"
-                        ? "Only people with access can open"
-                        : "Anyone with the link can view"}
+                      Only people added from this team can open
                     </p>
                   </div>
                 </div>

@@ -439,6 +439,7 @@ export default function TeamDrive() {
           onOpenChange={setShowManageAccess} 
           itemName={selectedItem?.name || ""}
           itemType={selectedItem?.type === DriveItemType.Folder ? "folder" : "file"}
+          teamId={teamId}
         />
       </div>
     </MainLayout>

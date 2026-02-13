@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +52,7 @@ const toolbarButtons = [
 ];
 
 export default function TextEditor() {
+  const { teamId = "" } = useParams<{ teamId: string }>();
   const [title, setTitle] = useState("Untitled Document");
   const [showAccessModal, setShowAccessModal] = useState(false);
   const [content, setContent] = useState(`
@@ -144,6 +146,7 @@ export default function TextEditor() {
         onOpenChange={setShowAccessModal}
         itemName={title}
         itemType="file"
+        teamId={teamId}
       />
     </MainLayout>
   );

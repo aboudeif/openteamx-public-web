@@ -1,51 +1,61 @@
 import { api } from "@/lib/api";
 
+type ListThreadsQuery = {
+  filter?: "all" | "inbox" | "unread" | "starred" | "archived";
+  search?: string;
+  page?: number;
+  limit?: number;
+};
+
+const buildQueryString = (query?: ListThreadsQuery) => {
+  if (!query) {
+    return "";
+  }
+
+  const params = new URLSearchParams();
+  if (query.filter) params.set("filter", query.filter);
+  if (query.search) params.set("search", query.search);
+  if (query.page) params.set("page", String(query.page));
+  if (query.limit) params.set("limit", String(query.limit));
+
+  const serialized = params.toString();
+  return serialized ? `?${serialized}` : "";
+};
+
 export class ApiMailService {
-  async getInbox(): Promise<any[]> {
-    return api.get<any[]>("/teams/{teamId}/mail/inbox");
+  async listThreads(teamId: string, query?: ListThreadsQuery): Promise<any> {
+    return api.get<any>(`/teams/${teamId}/mail${buildQueryString(query)}`);
   }
 
-  async getSent(): Promise<any[]> {
-    return api.get<any[]>("/teams/{teamId}/mail/sent");
+  async getThread(teamId: string, threadId: string): Promise<any> {
+    return api.get<any>(`/teams/${teamId}/mail/${threadId}`);
   }
 
-  async getDrafts(): Promise<any[]> {
-    return api.get<any[]>("/teams/{teamId}/mail/drafts");
+  async getMessages(teamId: string, threadId: string, page = 1, limit = 20): Promise<any> {
+    return api.get<any>(`/teams/${teamId}/mail/${threadId}/messages?page=${page}&limit=${limit}`);
   }
 
-  async getStarred(): Promise<any[]> {
-    return api.get<any[]>("/teams/{teamId}/mail/starred");
+  async createThread(teamId: string, payload: { subject: string; body: string; participantIds: string[]; attachmentIds?: string[] }): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail`, payload);
   }
 
-  async getEmail(emailId: string): Promise<any> {
-    return api.get<any>(`/teams/{teamId}/mail/${emailId}`);
+  async sendMessage(teamId: string, threadId: string, payload: { body: string; replyToId?: string; attachmentIds?: string[] }): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/messages`, payload);
   }
 
-  async sendEmail(email: any): Promise<any> {
-    return api.post<any>("/teams/{teamId}/mail/send", email);
+  async addParticipant(teamId: string, threadId: string, userId: string): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/participants`, { userId });
   }
 
-  async replyToEmail(emailId: string, reply: any): Promise<any> {
-    return api.post<any>(`/teams/{teamId}/mail/${emailId}/reply`, reply);
+  async leaveThread(teamId: string, threadId: string): Promise<any> {
+    return api.delete<any>(`/teams/${teamId}/mail/${threadId}/leave`);
   }
 
-  async forwardEmail(emailId: string, forward: any): Promise<any> {
-    return api.post<any>(`/teams/{teamId}/mail/${emailId}/forward`, forward);
+  async markAsRead(teamId: string, threadId: string): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/read`);
   }
 
-  async saveDraft(draft: any): Promise<any> {
-    return api.post<any>("/teams/{teamId}/mail/drafts", draft);
-  }
-
-  async deleteEmail(emailId: string): Promise<void> {
-    return api.delete(`/teams/{teamId}/mail/${emailId}`);
-  }
-
-  async starEmail(emailId: string): Promise<void> {
-    return api.patch(`/teams/{teamId}/mail/${emailId}/star`);
-  }
-
-  async markAsRead(emailId: string, read: boolean): Promise<void> {
-    return api.patch(`/teams/{teamId}/mail/${emailId}/read`, { read });
+  async archiveThread(teamId: string, threadId: string): Promise<any> {
+    return api.post<any>(`/teams/${teamId}/mail/${threadId}/archive`);
   }
 }
