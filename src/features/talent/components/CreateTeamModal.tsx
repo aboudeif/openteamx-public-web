@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, Form, Input, Select, Switch, Button, message } from 'antd';
 import { useCreateTeam } from '../../../hooks/useTeams';
 import { TeamType, type CreateTeamDto } from '../../../shared/types/index';
+import { languageOptions } from '@/data/languages';
 
 interface CreateTeamModalProps {
   open: boolean;
@@ -106,11 +107,11 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
         >
           <Select>
             <Select.Option value={TeamType.OPEN}>Open</Select.Option>
-            <Select.Option value={TeamType.PRIVATE}>Private</Select.Option>
-            <Select.Option value={TeamType.FREELANCE}>Freelance</Select.Option>
-            <Select.Option value={TeamType.STARTUP}>Startup</Select.Option>
-            <Select.Option value={TeamType.VOLUNTEER}>Volunteer</Select.Option>
-            <Select.Option value={TeamType.ORGANIZATION}>Organization</Select.Option>
+            <Select.Option disabled value={TeamType.PRIVATE}>Private</Select.Option>
+            <Select.Option disabled value={TeamType.FREELANCE}>Freelance</Select.Option>
+            <Select.Option disabled value={TeamType.STARTUP}>Startup</Select.Option>
+            <Select.Option disabled value={TeamType.VOLUNTEER}>Volunteer</Select.Option>
+            <Select.Option disabled value={TeamType.ORGANIZATION}>Organization</Select.Option>
           </Select>
         </Form.Item>
 
@@ -130,11 +131,38 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
             },
           ]}
         >
+
           <Select
             mode="tags"
             style={{ width: '100%' }}
             placeholder="e.g. Design, Development, Marketing"
             tokenSeparators={[',']}
+          />
+        </Form.Item>
+
+
+        <Form.Item
+          name="languages"
+          label="languages"
+          tooltip="Add Languages separated by comma or enter"
+          rules={[
+            {
+              validator: (_, value: string[] | undefined) => {
+                const normalized = (value || []).map((v) => v.trim()).filter(Boolean);
+                if (normalized.length >= 1) {
+                  return Promise.resolve();
+                }
+                return Promise.reject(new Error('Please add at least one language'));
+              },
+            },
+          ]}
+        >
+          <Select
+            mode="multiple"
+            showSearch
+            options={languageOptions}
+            placeholder="Select your languages"
+            style={{ width: '100%' }}
           />
         </Form.Item>
 
@@ -145,6 +173,7 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
           tooltip="Anyone can find this team and request to join. Joining still requires approval"
         >
           <Switch
+            disabled
             onChange={(checked) => {
               setIsPublic(checked);
               if (!checked) {
@@ -161,7 +190,7 @@ export const CreateTeamModal = ({ open, onClose }: CreateTeamModalProps) => {
           tooltip="This team appears in search and recommendations, but joining requires an invite or approval"
           hidden={!isPublic}
         >
-          <Switch />
+          <Switch disabled />
         </Form.Item>
 
         <div className="flex justify-end gap-2">

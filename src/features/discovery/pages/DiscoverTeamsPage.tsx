@@ -13,6 +13,7 @@ import { teamService } from "@/services";
 import { filterGroups } from "@/data/teams";
 import { Team } from "@/shared/types";
 import { toast } from "sonner";
+import { CreateTeamModal } from "@/features/talent/components/CreateTeamModal";
 
 type TeamWithOptionalTags = Team & { tags?: string[] };
 const PAGE_SIZE = 6;
@@ -49,6 +50,7 @@ function extractHasNext(payload: unknown, fetchedCount: number, limit: number): 
 }
 
 export default function DiscoverTeams() {
+  const [showCreateModal, setShowCreateModal] = useState(false);
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({});
@@ -190,8 +192,8 @@ export default function DiscoverTeams() {
       const description = typeof team.description === "string" ? team.description : "";
       const tags = Array.isArray((team as TeamWithOptionalTags).tags)
         ? (team as TeamWithOptionalTags).tags
-        : Array.isArray(team.subjects)
-          ? team.subjects
+        : Array.isArray(team.tags)
+          ? team.tags
           : [];
       const matchesSearch =
         team.name.toLowerCase().includes(query) ||
@@ -213,7 +215,7 @@ export default function DiscoverTeams() {
           description="Find team/s that match your skills and interests"
           descriptionClassName="text-xxl text-gray-400 status-badge mx-0 px-0 my-1"
         >
-          <Button>
+          <Button onClick={() => setShowCreateModal(true)}>
             <Users className="w-4 h-4 mr-2" />
             Create Team
           </Button>
@@ -278,6 +280,7 @@ export default function DiscoverTeams() {
           </>
         )}
       </div>
+      <CreateTeamModal open={showCreateModal} onClose={() => setShowCreateModal(false)} />
     </WorkspaceLayout>
   );
 }

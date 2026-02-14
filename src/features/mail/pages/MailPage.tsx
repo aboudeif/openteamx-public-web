@@ -205,6 +205,12 @@ export default function TeamMail() {
   const [linkUrl, setLinkUrl] = useState("");
 
   useEffect(() => {
+    if (composeBodyRef.current && composeBodyRef.current.innerHTML !== composeBodyHtml) {
+      composeBodyRef.current.innerHTML = composeBodyHtml;
+    }
+  }, [composeBodyHtml]);
+
+  useEffect(() => {
     if (!teamId) return;
     const loadRecipients = async () => {
       setIsLoadingRecipients(true);
@@ -586,7 +592,7 @@ export default function TeamMail() {
             <span className="text-sm text-muted-foreground w-16 pt-2">To:</span>
             <div className="flex-1 space-y-2">
               {selectedRecipients.length > 0 && (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 pt-2">
                   {selectedRecipients.map((recipient) => (
                     <span key={recipient.id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs text-primary">
                       {recipient.name}
@@ -599,28 +605,54 @@ export default function TeamMail() {
               )}
               <Popover open={recipientPickerOpen} onOpenChange={setRecipientPickerOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" className="h-9 justify-between min-w-56">
-                    Add members
-                    <ChevronDown className="h-4 w-4 ml-2" />
-                  </Button>
+                  <div
+                    onClick={() => setRecipientPickerOpen(true)}
+                    className=" my-1.5"
+                  >
+
+
+                    <span className="text-sm text-muted-foreground">
+                      {selectedRecipients.length === 0 && "Add members..."}
+                    </span>
+                  </div>
                 </PopoverTrigger>
+
                 <PopoverContent className="w-80 p-2">
-                  <Input value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Search members..." className="mb-2" />
+                  <Input
+                    autoFocus
+                    value={recipientQuery}
+                    onChange={(e) => setRecipientQuery(e.target.value)}
+                    placeholder="Search members..."
+                    className="mb-2"
+                  />
+
                   <ScrollArea className="h-52">
                     <div className="space-y-1">
-                      {isLoadingRecipients && <p className="text-sm text-muted-foreground px-2 py-1">Loading members...</p>}
+                      {isLoadingRecipients && (
+                        <p className="text-sm text-muted-foreground px-2 py-1">
+                          Loading members...
+                        </p>
+                      )}
+
                       {!isLoadingRecipients &&
                         filteredRecipientOptions.map((recipient) => {
                           const selected = composeRecipientIds.includes(recipient.id);
+
                           return (
                             <button
                               key={recipient.id}
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => toggleRecipient(recipient.id)}
-                              className={cn("w-full flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-left hover:bg-muted", selected && "bg-muted")}
+                              className={cn(
+                                "w-full flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-left hover:bg-muted",
+                                selected && "bg-muted"
+                              )}
                             >
                               <span>{recipient.name}</span>
-                              {selected && <Check className="h-4 w-4 text-primary" />}
+                              {selected && (
+                                <Check className="h-4 w-4 text-primary" />
+                              )}
                             </button>
                           );
                         })}
@@ -628,12 +660,13 @@ export default function TeamMail() {
                   </ScrollArea>
                 </PopoverContent>
               </Popover>
+
             </div>
           </div>
 
           <div className="flex items-center gap-2 border-b border-border pb-3">
             <span className="text-sm text-muted-foreground w-16">Subject:</span>
-            <Input value={composeSubject} onChange={(e) => setComposeSubject(e.target.value)} placeholder="Subject" className="flex-1 border-0 bg-transparent px-0 focus-visible:ring-0" />
+            <Input value={composeSubject} onChange={(e) => setComposeSubject(e.target.value)} placeholder="" className="flex-1 border-0 bg-transparent px-0 focus-visible:ring-0" />
           </div>
 
           <div
@@ -641,9 +674,10 @@ export default function TeamMail() {
             dir="ltr"
             contentEditable
             suppressContentEditableWarning
-            onInput={(event) => setComposeBodyHtml((event.currentTarget as HTMLDivElement).innerHTML)}
+            onInput={(event) =>
+              setComposeBodyHtml(event.currentTarget.innerHTML)
+            }
             className="w-full min-h-[400px] rounded-md border border-border p-3 bg-transparent text-sm text-left focus:outline-none"
-            dangerouslySetInnerHTML={{ __html: composeBodyHtml }}
           />
           {!composeBodyHtml && <p className="text-xs text-muted-foreground">Write your message...</p>}
 
